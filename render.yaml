@@ -5,7 +5,7 @@ services:
   # ──────────────────────────────────────────
   # Go Game Service (Authoritative Simulation)
   # ──────────────────────────────────────────
-  - type: web
+  - type: pserv
     name: tick-gameserver
     env: docker
     dockerfilePath: service/Dockerfile
@@ -34,7 +34,7 @@ services:
       - key: GO_SERVICE_HOST
         fromService:
           name: tick-gameserver
-          type: web
+          type: pserv
           property: host
       - key: GO_SERVICE_PORT
         value: "9090"
