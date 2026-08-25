@@ -184,6 +184,22 @@ export class Renderer {
    * @param label        - Optional text label to render above the player entity.
    * @param health       - Health points (0-100, defaults to 100).
    */
+  /** Map tracking death timestamps for remote players for live countdown display */
+  private remoteDeathTimestamps: Map<string, number> = new Map();
+
+  /**
+   * Draws a player circle entity with specified fill, outline, aim indicator, health bar, and respawn timer.
+   *
+   * @param x              - Horizontal center position in pixels.
+   * @param y              - Vertical center position in pixels.
+   * @param radius         - Radius of the player circle in pixels (defaults to PLAYER_RADIUS).
+   * @param fillColor      - Fill color string (e.g. hex or rgba).
+   * @param outlineColor   - Outline stroke color string.
+   * @param aimAngle       - Optional aim direction angle in radians (0 = facing right).
+   * @param label          - Optional text label to render above the player entity.
+   * @param health         - Health points (0-100, defaults to 100).
+   * @param respawnTimeSec - Optional remaining respawn countdown in seconds.
+   */
   public drawPlayer(
     x: number,
     y: number,
@@ -192,26 +208,38 @@ export class Renderer {
     outlineColor: string = RENDER_CONFIG.PLAYER_OUTLINE_COLOR,
     aimAngle?: number,
     label?: string,
-    health: number = 100
+    health: number = 100,
+    respawnTimeSec: number = 0
   ): void {
     const { ctx } = this;
     const isEliminated = health <= 0;
 
     ctx.save();
 
-    // Draw player body circle (dimmed / ghost if eliminated)
+    // Draw player body circle (solid medium gray #555566 if eliminated)
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, Math.PI * 2, false);
-    ctx.fillStyle = isEliminated ? 'rgba(255, 71, 87, 0.25)' : fillColor;
+    ctx.fillStyle = isEliminated ? '#555566' : fillColor;
     ctx.fill();
 
     // Draw outer boundary ring
     ctx.lineWidth = RENDER_CONFIG.PLAYER_OUTLINE_WIDTH;
-    ctx.strokeStyle = isEliminated ? '#ff4757' : outlineColor;
+    ctx.strokeStyle = isEliminated ? '#333344' : outlineColor;
     ctx.stroke();
 
-    // Draw directional aim line if alive and aim angle provided
-    if (!isEliminated && aimAngle !== undefined) {
+    // Draw elimination X cross if 0 HP
+    if (isEliminated) {
+      ctx.strokeStyle = '#aaaa88';
+      ctx.lineWidth = 3;
+      const offset = radius * 0.45;
+      ctx.beginPath();
+      ctx.moveTo(x - offset, y - offset);
+      ctx.lineTo(x + offset, y + offset);
+      ctx.moveTo(x + offset, y - offset);
+      ctx.lineTo(x - offset, y + offset);
+      ctx.stroke();
+    } else if (aimAngle !== undefined) {
+      // Draw directional aim line if alive and aim angle provided
       const endX = x + Math.cos(aimAngle) * RENDER_CONFIG.AIM_LINE_LENGTH;
       const endY = y + Math.sin(aimAngle) * RENDER_CONFIG.AIM_LINE_LENGTH;
 
@@ -226,8 +254,13 @@ export class Renderer {
     // Render health bar
     this.drawHealthBar(x, y, radius, health);
 
-    // Render player label above health bar
-    const displayLabel = isEliminated ? `${label || 'Player'} (RESPAWNING...)` : label;
+    // Render player label above health bar with live countdown
+    let displayLabel = label;
+    if (isEliminated) {
+      const timerStr = respawnTimeSec > 0 ? `${respawnTimeSec.toFixed(1)}s` : '...';
+      displayLabel = `${label || 'Player'} (RESPAWNING IN ${timerStr})`;
+    }
+
     if (displayLabel) {
       ctx.fillStyle = isEliminated ? '#ff4757' : RENDER_CONFIG.PLAYER_LABEL_COLOR;
       ctx.font = RENDER_CONFIG.PLAYER_LABEL_FONT;
@@ -245,9 +278,27 @@ export class Renderer {
    * @param entities - Array of remote EntityState objects to draw.
    */
   public drawRemotePlayers(entities: EntityState[]): void {
+    const now = Date.now();
+    const activeIds = new Set<string>();
+
     for (const entity of entities) {
-      const label = entity.id ? `P-${entity.id.slice(0, 4)}` : 'Remote';
+      if (!entity.id) continue;
+      activeIds.add(entity.id);
+
       const health = entity.health !== undefined ? entity.health : 100;
+      let respawnTimeSec = 0;
+
+      if (health <= 0) {
+        if (!this.remoteDeathTimestamps.has(entity.id)) {
+          this.remoteDeathTimestamps.set(entity.id, now);
+        }
+        const elapsed = (now - this.remoteDeathTimestamps.get(entity.id)!) / 1000;
+        respawnTimeSec = Math.max(0, 3.0 - elapsed);
+      } else {
+        this.remoteDeathTimestamps.delete(entity.id);
+      }
+
+      const label = `P-${entity.id.slice(0, 4)}`;
       this.drawPlayer(
         entity.x,
         entity.y,
@@ -256,9 +307,59 @@ export class Renderer {
         RENDER_CONFIG.PLAYER_OUTLINE_COLOR,
         entity.angle,
         label,
-        health
+        health,
+        respawnTimeSec
       );
     }
+
+    // Clean up expired remote timestamps
+    for (const id of this.remoteDeathTimestamps.keys()) {
+      if (!activeIds.has(id)) {
+        this.remoteDeathTimestamps.delete(id);
+      }
+    }
+  }
+
+  /**
+   * Renders a high-visibility center-screen banner overlay when the local player is eliminated.
+   * Displays "ELIMINATED! RESPAWNING IN X.Xs..." with live countdown.
+   *
+   * @param remainingSeconds - Countdown duration in seconds until respawn.
+   */
+  public drawEliminatedBanner(remainingSeconds: number): void {
+    const { ctx } = this;
+    ctx.save();
+
+    const bannerY = ARENA_H * 0.32;
+    const bannerH = 70;
+
+    // Dark translucent background banner
+    ctx.fillStyle = 'rgba(15, 15, 25, 0.85)';
+    ctx.fillRect(0, bannerY, ARENA_W, bannerH);
+
+    // Red top/bottom accent border lines
+    ctx.strokeStyle = '#ff4757';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, bannerY);
+    ctx.lineTo(ARENA_W, bannerY);
+    ctx.moveTo(0, bannerY + bannerH);
+    ctx.lineTo(ARENA_W, bannerY + bannerH);
+    ctx.stroke();
+
+    // Text: 💀 ELIMINATED!
+    ctx.fillStyle = '#ff4757';
+    ctx.font = 'bold 22px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('💀 ELIMINATED!', ARENA_W / 2, bannerY + 24);
+
+    // Text: RESPAWNING IN X.Xs...
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 16px monospace';
+    ctx.fillText(`RESPAWNING IN ${remainingSeconds.toFixed(1)}s`, ARENA_W / 2, bannerY + 50);
+
+    ctx.restore();
   }
 
   /**
@@ -393,7 +494,8 @@ export class Renderer {
     remoteEntities: EntityState[] = [],
     bullets: BulletState[] = [],
     extrapolationSeconds: number = 0,
-    localHealth: number = 100
+    localHealth: number = 100,
+    localRespawnTimeSec: number = 0
   ): void {
     this.clear();
     this.drawArena();
@@ -408,7 +510,12 @@ export class Renderer {
       RENDER_CONFIG.PLAYER_OUTLINE_COLOR,
       aimAngle,
       'You',
-      localHealth
+      localHealth,
+      localRespawnTimeSec
     );
+
+    if (localHealth <= 0) {
+      this.drawEliminatedBanner(localRespawnTimeSec);
+    }
   }
 }

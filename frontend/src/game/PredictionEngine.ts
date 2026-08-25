@@ -58,6 +58,9 @@ export class PredictionEngine {
   /** Current hit points pool of the local player entity (0-100) */
   private health: number = 100;
 
+  /** Timestamp in ms when local player was eliminated (0 if alive) */
+  private deathTimestamp: number = 0;
+
   /**
    * Initializes the PredictionEngine at a given starting position.
    *
@@ -91,22 +94,20 @@ export class PredictionEngine {
    *   y = clamp(y, PLAYER_RADIUS, ARENA_H - PLAYER_RADIUS)
    *
    * @param target - Target object possessing x, y coordinates and optional angle/speed.
-   * @param cmd    - The UserCmd input containing directional deltas and aim angle.
-   * @param dt     - Elapsed delta time in seconds for the simulation step.
+   * @param cmd    - The UserCmd input containing directional movement dx, dy and aim angle.
+   * @param dt     - Delta time in seconds for the simulation tick.
    */
   public static applyMovement(
     target: { x: number; y: number; angle?: number; speed?: number },
     cmd: UserCmd,
     dt: number
   ): void {
-    const speed = target.speed !== undefined && target.speed > 0 ? target.speed : PLAYER_SPEED;
+    const speed = target.speed && target.speed > 0 ? target.speed : PLAYER_SPEED;
 
-    // Advance position with delta time scaling for frame-rate / tick-rate independence
     target.x += cmd.dx * speed * dt;
     target.y += cmd.dy * speed * dt;
     target.angle = cmd.aimAngle;
 
-    // Enforce arena boundary collision limits inset by player radius
     target.x = Math.max(PLAYER_RADIUS, Math.min(ARENA_W - PLAYER_RADIUS, target.x));
     target.y = Math.max(PLAYER_RADIUS, Math.min(ARENA_H - PLAYER_RADIUS, target.y));
   }
@@ -168,17 +169,23 @@ export class PredictionEngine {
    * @param ackSeq       - Highest UserCmd sequence number acknowledged by the server.
    */
   public reconcile(serverEntity: EntityState, ackSeq: number): void {
+    const prevHealth = this.health;
     // Update local health state from authoritative server snapshot
     this.health = serverEntity.health ?? 100;
 
-    // If local player is eliminated (0 HP), snap to server position and clear unACKed commands
+    // If local player is eliminated (0 HP), snap to server position, lock prediction, and set death timestamp
     if (this.health <= 0) {
+      if (prevHealth > 0 || this.deathTimestamp === 0) {
+        this.deathTimestamp = Date.now();
+      }
       this.predictedX = serverEntity.x;
       this.predictedY = serverEntity.y;
       this.predictedAngle = serverEntity.angle;
       this.unackedBuffer = [];
       this.predictionError = 0;
       return;
+    } else {
+      this.deathTimestamp = 0;
     }
 
     // Ignore stale or out-of-order acknowledgements
@@ -291,6 +298,19 @@ export class PredictionEngine {
    */
   public getHealth(): number {
     return this.health;
+  }
+
+  /**
+   * Returns remaining respawn countdown duration in seconds if local player is eliminated (0 HP).
+   *
+   * @returns Remaining time in seconds (0 if alive).
+   */
+  public getRespawnTimeRemaining(): number {
+    if (this.health > 0 || this.deathTimestamp === 0) {
+      return 0;
+    }
+    const elapsedSec = (Date.now() - this.deathTimestamp) / 1000;
+    return Math.max(0, 3.0 - elapsedSec);
   }
 
   /**
