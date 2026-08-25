@@ -55,13 +55,54 @@ Browser (JSON) ──────────────── Gateway (Java) �
 
 ---
 
+## JSON ↔ Protobuf Field Mapping Reference
+
+| Proto Message | Proto Field (`snake_case`) | Proto Type | JSON Key (`camelCase`) | JSON Type | Description / Notes |
+|---|---|---|---|---|---|
+| `JoinRequest` | `player_id` | `string` | `playerId` | `string` | Player ID (injected by gateway from session) |
+| `JoinRequest` | `name` | `string` | `name` | `string` | Player chosen display name |
+| `JoinResponse` | `ok` | `bool` | `ok` | `boolean` | Success flag for join admission |
+| `JoinResponse` | `spawn_x` | `float` | `spawnX` | `number` | Initial spawn X coordinate |
+| `JoinResponse` | `spawn_y` | `float` | `spawnY` | `number` | Initial spawn Y coordinate |
+| `UserCmd` | `player_id` | `string` | `playerId` | `string` | Player ID (injected by gateway) |
+| `UserCmd` | `seq` | `int32` | `seq` | `number` | Client command sequence number |
+| `UserCmd` | `timestamp` | `int64` | `timestamp` | `number` | Input timestamp in milliseconds |
+| `UserCmd` | `dx` | `float` | `dx` | `number` | Movement vector X (-1.0 to 1.0) |
+| `UserCmd` | `dy` | `float` | `dy` | `number` | Movement vector Y (-1.0 to 1.0) |
+| `UserCmd` | `aim_angle` | `float` | `aimAngle` | `number` | Cursor angle in radians |
+| `UserCmd` | `fire` | `bool` | `fire` | `boolean` | Weapon fire trigger flag |
+| `EntityState` | `id` | `string` | `id` | `string` | Entity / player ID |
+| `EntityState` | `x` | `float` | `x` | `number` | X position in arena pixels |
+| `EntityState` | `y` | `float` | `y` | `number` | Y position in arena pixels |
+| `EntityState` | `angle` | `float` | `angle` | `number` | Aim / facing direction in radians |
+| `EntityState` | `health` | `int32` | `health` | `number` | Current health points (0 = eliminated) |
+| `EntityState` | `is_self` | `bool` | `isSelf` | `boolean` | True if this entity is the local player |
+| `BulletState` | `id` | `string` | `id` | `string` | Bullet unique identifier |
+| `BulletState` | `owner_id` | `string` | `ownerId` | `string` | Player ID of shooter |
+| `BulletState` | `x` | `float` | `x` | `number` | Bullet X position in arena pixels |
+| `BulletState` | `y` | `float` | `y` | `number` | Bullet Y position in arena pixels |
+| `BulletState` | `vx` | `float` | `vx` | `number` | Bullet X velocity (pixels/sec) |
+| `BulletState` | `vy` | `float` | `vy` | `number` | Bullet Y velocity (pixels/sec) |
+| `Snapshot` | `server_tick` | `int64` | `serverTick` | `number` | Authoritative server tick number |
+| `Snapshot` | `ack_seq` | `int32` | `ackSeq` | `number` | Highest acked UserCmd seq for receiver |
+| `Snapshot` | `entities` | `repeated EntityState` | `entities` | `Array<Entity>` | Active entities in world |
+| `Snapshot` | `bullets` | `repeated BulletState` | `bullets` | `Array<Bullet>` | Active bullets in flight |
+| `LeaveRequest` | `player_id` | `string` | `playerId` | `string` | Player ID departing the match |
+| `ClientMessage` | `join_request` | `JoinRequest` | `joinRequest` | `object` | Envelope payload for join |
+| `ClientMessage` | `user_cmd` | `UserCmd` | `userCmd` | `object` | Envelope payload for input cmd |
+| `ClientMessage` | `leave_request` | `LeaveRequest` | `leaveRequest` | `object` | Envelope payload for leave |
+| `ServerMessage` | `join_response` | `JoinResponse` | `joinResponse` | `object` | Envelope payload for join ack |
+| `ServerMessage` | `snapshot` | `Snapshot` | `snapshot` | `object` | Envelope payload for snapshot |
+
+---
+
 ## Responsibilities
-- [ ] Define all message types completely before gateway-grpc-bridge or service-networking starts
-- [ ] Document every field with an inline comment in the `.proto` file
-- [ ] Provide a JSON ↔ proto field mapping table for the frontend team
-- [ ] Verify `protoc` generates clean Go stubs: `protoc --go_out=. --go-grpc_out=. proto/game.proto`
-- [ ] Verify Maven generates clean Java stubs: `mvn generate-sources`
-- [ ] Maintain a CHANGELOG comment block at the top of `game.proto` for any field additions
+- [x] Define all message types completely before gateway-grpc-bridge or service-networking starts
+- [x] Document every field with an inline comment in the `.proto` file
+- [x] Provide a JSON ↔ proto field mapping table for the frontend team
+- [x] Verify `protoc` generates clean Go stubs: `protoc --go_out=. --go-grpc_out=. proto/game.proto`
+- [x] Verify Maven generates clean Java stubs: `mvn generate-sources`
+- [x] Maintain a CHANGELOG comment block at the top of `game.proto` for any field additions
 
 ---
 
@@ -76,7 +117,8 @@ Browser (JSON) ──────────────── Gateway (Java) �
 
 ## Definition of Done Gate
 Before handing off to dependent agents:
-- [ ] `game.proto` compiles cleanly for both Go and Java
-- [ ] All fields have inline comments
-- [ ] A `proto-contract.md` field mapping table is committed to `.agents/` (this file)
-- [ ] No field uses the reserved proto type `required` (proto3 only uses `optional` implicitly)
+- [x] `game.proto` compiles cleanly for both Go and Java
+- [x] All fields have inline comments
+- [x] A `proto-contract.md` field mapping table is committed to `.agents/` (this file)
+- [x] No field uses the reserved proto type `required` (proto3 only uses `optional` implicitly)
+
