@@ -34,6 +34,7 @@ services:
       - key: GO_SERVICE_HOST
         fromService:
           name: tick-gameserver
-          type: host
+          type: web
+          property: host
       - key: GO_SERVICE_PORT
         value: "9090"
