@@ -12,9 +12,6 @@ services:
     dockerContext: service
     plan: free
     envVars:
-      # Bind gRPC port to Render's dynamically allocated HTTP port
-      - key: GRPC_PORT
-        fromEnvVar: PORT
       - key: ARENA_W
         value: "1200"
       - key: ARENA_H
@@ -30,9 +27,6 @@ services:
     dockerContext: gateway
     plan: free
     envVars:
-      # Bind Gateway port to Render's dynamically allocated HTTP port
-      - key: SERVER_PORT
-        fromEnvVar: PORT
       # Automatically resolve the Go service host
       - key: GO_SERVICE_HOST
         fromService:
