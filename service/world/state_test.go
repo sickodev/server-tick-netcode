@@ -3,6 +3,8 @@ package world
 import (
 	"sync"
 	"testing"
+
+	"github.com/server-tick-netcode/service/proto/pb"
 )
 
 // TestAddPlayer verifies player creation, health initialization, and inner 80% bounds check.
@@ -77,3 +79,34 @@ func TestConcurrentAccess(t *testing.T) {
 
 	wg.Wait()
 }
+
+// TestSnapshotChannels verifies registration, retrieval, and unregistration of snapshot channels.
+func TestSnapshotChannels(t *testing.T) {
+	w := NewWorldState()
+	w.AddPlayer("p1")
+
+	ch := make(chan *pb.ServerMessage, 4)
+	w.RegisterSnapshotCh("p1", ch)
+
+	w.Mu.RLock()
+	retrieved, exists := w.SnapChs["p1"]
+	w.Mu.RUnlock()
+
+	if !exists || retrieved != ch {
+		t.Fatal("Snapshot channel was not properly registered")
+	}
+
+	unregCh := w.UnregisterSnapshotCh("p1")
+	if unregCh != ch {
+		t.Fatal("UnregisterSnapshotCh did not return the expected channel")
+	}
+
+	w.Mu.RLock()
+	_, existsAfter := w.SnapChs["p1"]
+	w.Mu.RUnlock()
+
+	if existsAfter {
+		t.Fatal("Snapshot channel still exists after unregistering")
+	}
+}
+

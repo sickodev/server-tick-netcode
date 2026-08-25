@@ -114,11 +114,11 @@ Each tick, drain the per-player `usercmd` channel (non-blocking) and call `physi
 In `net/grpc_handler.go`, implement the `GameService` gRPC server interface generated from `game.proto`. Start the gRPC listener in `main.go` on port `9090`.
 
 **Definition of Done**
-- [ ] `go run main.go` starts a gRPC server on `:9090`
-- [ ] `grpcurl -plaintext localhost:9090 list` shows `game.GameService`
-- [ ] Server shuts down gracefully on `Ctrl+C`
-- [ ] Proto-generated code is committed (or generated via `go generate`)
-- [ ] Port is configurable via an environment variable `GRPC_PORT` (default `9090`)
+- [x] `go run main.go` starts a gRPC server on `:9090`
+- [x] `grpcurl -plaintext localhost:9090 list` shows `game.GameService`
+- [x] Server shuts down gracefully on `Ctrl+C`
+- [x] Proto-generated code is committed (or generated via `go generate`)
+- [x] Port is configurable via an environment variable `GRPC_PORT` (default `9090`)
 
 ---
 
@@ -129,11 +129,11 @@ In `net/grpc_handler.go`, implement the `GameService` gRPC server interface gene
 In the `Play` stream handler, read the first `ClientMessage`. If it is a `JoinRequest`, call `world.AddPlayer`, send back a `JoinResponse` with spawn position, and log the join event.
 
 **Definition of Done**
-- [ ] First message on any `Play` stream must be a `JoinRequest` (other types are rejected with an error response)
-- [ ] `JoinResponse` contains `ok: true`, `spawn_x`, `spawn_y`
-- [ ] Server logs `[join] player <id> spawned at (x, y)`
-- [ ] If `player_id` is empty, respond with `ok: false, error: "player_id required"`
-- [ ] Tested end-to-end: Java gateway sends join, Go logs it
+- [x] First message on any `Play` stream must be a `JoinRequest` (other types are rejected with an error response)
+- [x] `JoinResponse` contains `ok: true`, `spawn_x`, `spawn_y`
+- [x] Server logs `[join] player <id> spawned at (x, y)`
+- [x] If `player_id` is empty, respond with `ok: false, error: "player_id required"`
+- [x] Tested end-to-end: Java gateway sends join, Go logs it
 
 ---
 
@@ -144,11 +144,11 @@ In the `Play` stream handler, read the first `ClientMessage`. If it is a `JoinRe
 After the `JoinRequest` is handled, read subsequent `ClientMessage`s in the stream. For each `UserCmd`, push it onto the player's command channel (non-blocking drop on full).
 
 **Definition of Done**
-- [ ] `UserCmd` proto fields are converted to an internal `UserCmd` struct before enqueue
-- [ ] Channel send is non-blocking: if the channel is full, the command is dropped and a counter is incremented
-- [ ] A dropped-command counter is logged once per second if non-zero
-- [ ] `LeaveRequest` on the stream triggers player removal and stream close
-- [ ] Stream errors (client disconnect) also trigger player removal
+- [x] `UserCmd` proto fields are converted to an internal `UserCmd` struct before enqueue
+- [x] Channel send is non-blocking: if the channel is full, the command is dropped and a counter is incremented
+- [x] A dropped-command counter is logged once per second if non-zero
+- [x] `LeaveRequest` on the stream triggers player removal and stream close
+- [x] Stream errors (client disconnect) also trigger player removal
 
 ---
 
@@ -159,11 +159,11 @@ After the `JoinRequest` is handled, read subsequent `ClientMessage`s in the stre
 At the end of each tick, construct a `Snapshot` proto for each connected player (setting `is_self = true` for their own entity) and send it on their gRPC stream via a per-player `chan *pb.ServerMessage` (non-blocking).
 
 **Definition of Done**
-- [ ] Each connected player receives a `Snapshot` every tick (~64/sec)
-- [ ] `ack_seq` in the snapshot is the `seq` of the last `UserCmd` processed for that player
-- [ ] `is_self` is `true` for exactly one `EntityState` per snapshot (the receiving player)
-- [ ] Snapshot send is non-blocking (slow clients are dropped, not blocked)
-- [ ] `server_tick` increments by 1 on every snapshot
+- [x] Each connected player receives a `Snapshot` every tick (~64/sec)
+- [x] `ack_seq` in the snapshot is the `seq` of the last `UserCmd` processed for that player
+- [x] `is_self` is `true` for exactly one `EntityState` per snapshot (the receiving player)
+- [x] Snapshot send is non-blocking (slow clients are dropped, not blocked)
+- [x] `server_tick` increments by 1 on every snapshot
 
 ---
 
