@@ -8,19 +8,13 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
+
+	"github.com/server-tick-netcode/service/physics"
+	"github.com/server-tick-netcode/service/tick"
+	"github.com/server-tick-netcode/service/world"
 )
 
-const (
-	// TickRate represents the server tick frequency in Hz (64 updates per second).
-	// Higher tick rates provide smoother simulation at the expense of CPU cycles.
-	TickRate = 64
-
-	// TickInterval is the duration between simulation ticks (15.625ms for 64Hz).
-	TickInterval = time.Second / TickRate
-)
-
-// main initializes signal traps and executes a 64Hz tick loop until an OS termination signal is received.
+// main initializes signal traps, creates world state, and executes the game loop.
 func main() {
 	fmt.Println("game service starting…")
 
@@ -28,26 +22,26 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Initialize the fixed-rate ticker configured for 64Hz simulation.
-	ticker := time.NewTicker(TickInterval)
-	defer ticker.Stop()
+	// Initialize the authoritative global world state.
+	worldState := world.NewWorldState()
 
-	// tick tracks the monotonic tick counter since the server started.
-	var tick int64
+	// Instantiate the tick loop with simulation processing and counter output.
+	loop := tick.NewLoop(func(t int64) {
+		worldState.Mu.Lock()
+		worldState.Tick = t
+		worldState.Mu.Unlock()
 
-	// Main tick loop runs until context cancellation is triggered by an OS interrupt.
-	for {
-		select {
-		case <-ctx.Done():
-			// Shutdown signal caught; exit the loop gracefully to prevent goroutine leaks.
-			fmt.Println("game service shutting down…")
-			return
-		case <-ticker.C:
-			tick++
-			// Print the tick counter once per second (every 64 ticks).
-			if tick%TickRate == 0 {
-				fmt.Printf("tick: %d\n", tick)
-			}
+		// Drain client input queues and apply movement physics for all connected players.
+		physics.ProcessCommands(worldState, physics.TickDuration)
+
+		// Print periodic tick diagnostic to stdout once per second (every 64 ticks).
+		if t%physics.TickRate == 0 {
+			fmt.Printf("tick: %d\n", t)
 		}
-	}
+	})
+
+	// Start the tick loop synchronously until context cancellation is received.
+	loop.Start(ctx)
+
+	fmt.Println("game service shutting down…")
 }
