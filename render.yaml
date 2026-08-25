@@ -1,0 +1,39 @@
+# Render Blueprint Specification File for server-tick-netcode
+# Refer to AGENTS.md / ops prefix for details.
+
+services:
+  # ──────────────────────────────────────────
+  # Go Game Service (Authoritative Simulation)
+  # ──────────────────────────────────────────
+  - type: web
+    name: tick-gameserver
+    env: docker
+    dockerfilePath: service/Dockerfile
+    dockerContext: service
+    plan: free
+    envVars:
+      - key: GRPC_PORT
+        value: "9090"
+      - key: ARENA_W
+        value: "1200"
+      - key: ARENA_H
+        value: "800"
+
+  # ──────────────────────────────────────────
+  # Java Gateway (WebSocket Relay)
+  # ──────────────────────────────────────────
+  - type: web
+    name: tick-gateway
+    env: docker
+    dockerfilePath: gateway/Dockerfile
+    dockerContext: gateway
+    plan: free
+    envVars:
+      - key: SERVER_PORT
+        value: "8080"
+      - key: GO_SERVICE_HOST
+        fromService:
+          name: tick-gameserver
+          type: host
+      - key: GO_SERVICE_PORT
+        value: "9090"
