@@ -138,33 +138,50 @@ Implement the `onNext` handler of the gRPC `StreamObserver<ServerMessage>`. When
 
 ---
 
-### STORY-G09 · Handle player disconnect and clean up session
+### STORY-G09 · Token-Bucket Rate Limiter & Disconnect Cleanup
 **Complexity:** `S`
 
 **Description**
-On WebSocket close or error, send a `LeaveRequest` proto on the player's gRPC stream, then cancel the stream and remove the session from `SessionManager`.
+Implement token-bucket rate limiter per WebSocket session (max 128 commands/sec, burst capacity 16). In `GameWebSocketHandler.handleUserCmd`, check rate limit, drop command if exceeded, log warning `[rate-limit]` with 1-second throttle, and increment dropped command metric. On WebSocket close or error, send `LeaveRequest` proto on the player's gRPC stream, cancel/complete stream, and remove session from `SessionManager` and `RateLimiter`.
 
 **Definition of Done**
-- [ ] WebSocket close triggers `LeaveRequest` proto → Go service
-- [ ] gRPC stream is cancelled after `LeaveRequest` is sent
-- [ ] Session is removed from `SessionManager` map
-- [ ] No memory leak: repeated connect/disconnect cycles do not grow the session map
-- [ ] Go service log shows player leaving when the browser tab is closed
+- [x] Per-session Token-Bucket rate limiter enforcing max 128 cmds/sec with 16-burst capacity in `RateLimiter.java`
+- [x] Sessions sending > 128 `usercmd`/sec have excess messages silently dropped
+- [x] Rate-limit warning logged at most once per second per offending session (`[rate-limit]`)
+- [x] WebSocket close triggers `LeaveRequest` proto → Go service
+- [x] gRPC stream is completed after `LeaveRequest` is sent
+- [x] Session state removed cleanly from `SessionManager` and `RateLimiter`
+- [x] No memory leak: repeated connect/disconnect cycles do not grow session or bucket maps
 
 ---
 
-### STORY-G10 · Add per-session rate limiting on `usercmd` messages
+### STORY-G10 · Input Validation & Sanitization
 **Complexity:** `S`
 
 **Description**
-Limit each WebSocket session to a maximum of `MAX_CMDS_PER_SECOND = 128` `usercmd` messages per second (2× the server tick rate as headroom). Drop excess messages and log a warning with the session ID.
+In `com.netcode.gateway.validation.InputValidator`, validate and sanitize `UserCmdMessage` and `JoinMessage`. Clamp `dx` and `dy` movement axes to `[-1.0, 1.0]`. Ensure non-negative `seq >= 0` and finite float values for `aimAngle` (preventing NaN/Infinity poisoning). Sanitize player display names by removing HTML tags, stripping disallowed special characters, and truncating to 24 characters.
 
 **Definition of Done**
-- [ ] Sessions sending > 128 `usercmd`/sec have excess messages silently dropped
-- [ ] A warning is logged once per second per offending session (not per dropped message)
-- [ ] Sessions within the limit are unaffected
-- [ ] Rate limiter state is per-session (one session cannot affect another)
-- [ ] Rate limiter is reset on reconnect
+- [x] `InputValidator.java` validates and sanitizes `UserCmdMessage` and `JoinMessage`
+- [x] `dx` and `dy` clamped to `[-1.0, 1.0]` with NaN/Infinite checks
+- [x] Sequence number constrained to `seq >= 0`
+- [x] Aim angle sanitized to finite numbers
+- [x] Player name stripped of HTML tags, control/disallowed special characters, and truncated to 24 chars
+- [x] Clean unit tests in `InputValidatorTest.java` verifying all validation and sanitization invariants
+
+---
+
+### STORY-G11 · Connection Metrics & Monitoring
+**Complexity:** `S`
+
+**Description**
+In `com.netcode.gateway.metrics.GatewayMetrics`, track active WebSocket sessions, total messages forwarded, dropped commands, total snapshots received, and gRPC forwarding latency. Expose metrics in `GET /health` and `GET /actuator/metrics`.
+
+**Definition of Done**
+- [x] Thread-safe `GatewayMetrics.java` tracking active sessions, forwarded messages, dropped commands, and gRPC latency
+- [x] Metrics integrated into `GameWebSocketHandler` lifecycle and message flows
+- [x] Metrics exposed in `GET /health` and `GET /actuator/metrics` endpoints in `HealthController.java`
+- [x] Clean unit tests in `GatewayMetricsTest.java` and `HealthControllerTest.java`
 
 ---
 
@@ -180,5 +197,6 @@ Limit each WebSocket session to a maximum of `MAX_CMDS_PER_SECOND = 128` `usercm
 | G06 | Open a bidirectional gRPC stream per player | `M` |
 | G07 | Forward `usercmd` messages to the Go service | `S` |
 | G08 | Receive snapshots from Go and push to WebSocket client | `M` |
-| G09 | Handle player disconnect and clean up session | `S` |
-| G10 | Add per-session rate limiting on `usercmd` messages | `S` |
+| G09 | Token-Bucket Rate Limiter & Disconnect Cleanup | `S` |
+| G10 | Input Validation & Sanitization | `S` |
+| G11 | Connection Metrics & Monitoring | `S` |

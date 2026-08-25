@@ -178,11 +178,11 @@ At the end of each tick, construct a `Snapshot` proto for each connected player 
 In `world/history.go`, implement a circular ring buffer that stores a deep copy of `WorldState` every tick (128 entries = 2 seconds at 64Hz). Expose `StateAt(tick int64) *WorldState`.
 
 **Definition of Done**
-- [ ] Buffer stores exactly 128 entries in a fixed-size array (no dynamic allocation per tick)
-- [ ] `StateAt` returns the state for a given tick, or `nil` if that tick has been overwritten
-- [ ] `Record(state WorldState)` stores a **deep copy** (mutations to live state do not affect history)
-- [ ] Buffer wraps correctly: entry 129 overwrites entry 1
-- [ ] `go test ./world/...` includes: record 200 states, assert StateAt for ticks 73–200 returns correct data, ticks 1–72 return nil
+- [x] Buffer stores exactly 128 entries in a fixed-size array (no dynamic allocation per tick)
+- [x] `StateAt` returns the state for a given tick, or `nil` if that tick has been overwritten
+- [x] `Record(state WorldState)` stores a **deep copy** (mutations to live state do not affect history)
+- [x] Buffer wraps correctly: entry 129 overwrites entry 1
+- [x] `go test ./world/...` includes: record 200 states, assert StateAt for ticks 73–200 returns correct data, ticks 1–72 return nil
 
 ---
 
@@ -193,12 +193,12 @@ In `world/history.go`, implement a circular ring buffer that stores a deep copy 
 When a `UserCmd` has `fire: true`, spawn a `BulletState` at the player's position moving in the `aimAngle` direction at `BULLET_SPEED`. Each tick, advance all bullets by their velocity. Remove bullets that leave the arena.
 
 **Definition of Done**
-- [ ] Firing spawns a bullet with `VX = cos(aimAngle) * BULLET_SPEED`, `VY = sin(aimAngle) * BULLET_SPEED`
-- [ ] `BULLET_SPEED` is a named constant (e.g. `600` px/sec)
-- [ ] Bullets are advanced each tick: `X += VX * dt`, `Y += VY * dt`
-- [ ] Bullets outside the arena bounds are removed from `WorldState.Bullets`
-- [ ] Bullets appear in the `Snapshot.bullets` field sent to clients
-- [ ] A player cannot fire faster than once every 10 ticks (cooldown enforced server-side)
+- [x] Firing spawns a bullet with `VX = cos(aimAngle) * BULLET_SPEED`, `VY = sin(aimAngle) * BULLET_SPEED`
+- [x] `BULLET_SPEED` is a named constant (e.g. `600` px/sec)
+- [x] Bullets are advanced each tick: `X += VX * dt`, `Y += VY * dt`
+- [x] Bullets outside the arena bounds are removed from `WorldState.Bullets`
+- [x] Bullets appear in the `Snapshot.bullets` field sent to clients
+- [x] A player cannot fire faster than once every 16 ticks (cooldown enforced server-side)
 
 ---
 
@@ -209,12 +209,12 @@ When a `UserCmd` has `fire: true`, spawn a `BulletState` at the player's positio
 When a `fire: true` command is processed, calculate the rewind tick (`currentTick - latencyTicks - interpTicks`), retrieve the historical world state, and perform a ray-vs-circle intersection test from the player's weapon position along `aimAngle` against all other players' hitboxes at that rewound state.
 
 **Definition of Done**
-- [ ] Rewind tick = `currentTick - clientLatencyTicks - 2` (2 ticks for interp delay)
-- [ ] `clientLatencyTicks` is estimated as `(serverReceiveTime - cmd.Timestamp) / tickDuration`
-- [ ] `physics.RayVsCircle(origin, direction, center, radius float64) bool` implemented in `physics/hitdetect.go`
-- [ ] Hit detection runs against the **historical** world state, not the current state
-- [ ] World state is restored after hit detection (history buffer is read-only)
-- [ ] `go test ./physics/...` covers: direct hit, near miss, shot behind cover
+- [x] Rewind tick = `currentTick - clientLatencyTicks - 2` (2 ticks for interp delay)
+- [x] `clientLatencyTicks` is estimated as `(serverReceiveTime - cmd.Timestamp) / tickDuration`
+- [x] `physics.RayVsCircle(origin, direction, center, radius float64) bool` implemented in `physics/hitdetect.go`
+- [x] Hit detection runs against the **historical** world state, not the current state
+- [x] World state is restored after hit detection (history buffer is read-only)
+- [x] `go test ./physics/...` covers: direct hit, near miss, shot behind cover
 
 ---
 
@@ -225,12 +225,12 @@ When a `fire: true` command is processed, calculate the rewind tick (`currentTic
 When a hit is confirmed, reduce the target's `Health` by `BULLET_DAMAGE` (default 25). If health reaches 0, remove the player and include a `hit` flag in the next snapshot. Respawn the eliminated player after 3 seconds.
 
 **Definition of Done**
-- [ ] `BULLET_DAMAGE = 25` (4 shots to eliminate)
-- [ ] `Health` floor is 0 (no negative health)
-- [ ] Eliminated players are removed from the world immediately
-- [ ] Eliminated player reconnects with full health after a 3-second timer goroutine
-- [ ] The snapshot's `EntityState.health` field reflects current health for all players
-- [ ] Server log: `[hit] <shooter> → <target> (health: <remaining>)`
+- [x] `BULLET_DAMAGE = 25` (4 shots to eliminate)
+- [x] `Health` floor is 0 (no negative health)
+- [x] Eliminated players are removed from the world immediately
+- [x] Eliminated player reconnects with full health after a 3-second timer goroutine
+- [x] The snapshot's `EntityState.health` field reflects current health for all players
+- [x] Server log: `[hit] <shooter> → <target> (health: <remaining>)`
 
 ---
 
