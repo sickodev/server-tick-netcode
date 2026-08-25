@@ -12,6 +12,9 @@ services:
     dockerContext: service
     plan: free
     envVars:
+      # Explicitly set the port to 9090 to match EXPOSE 9090 in Dockerfile
+      - key: PORT
+        value: "9090"
       - key: ARENA_W
         value: "1200"
       - key: ARENA_H
@@ -27,6 +30,9 @@ services:
     dockerContext: gateway
     plan: free
     envVars:
+      # Explicitly set the port to 8080 to match EXPOSE 8080 in Dockerfile
+      - key: PORT
+        value: "8080"
       # Automatically resolve the Go service host
       - key: GO_SERVICE_HOST
         fromService:
@@ -35,7 +41,4 @@ services:
           property: host
       # Automatically resolve the Go service port
       - key: GO_SERVICE_PORT
-        fromService:
-          name: tick-gameserver
-          type: web
-          property: port
+        value: "9090"
