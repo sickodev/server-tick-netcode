@@ -5,15 +5,16 @@ services:
   # ──────────────────────────────────────────
   # Go Game Service (Authoritative Simulation)
   # ──────────────────────────────────────────
-  - type: pserv
+  - type: web
     name: tick-gameserver
     env: docker
     dockerfilePath: service/Dockerfile
     dockerContext: service
     plan: free
     envVars:
+      # Bind gRPC port to Render's dynamically allocated HTTP port
       - key: GRPC_PORT
-        value: "9090"
+        fromEnvVar: PORT
       - key: ARENA_W
         value: "1200"
       - key: ARENA_H
@@ -29,12 +30,18 @@ services:
     dockerContext: gateway
     plan: free
     envVars:
+      # Bind Gateway port to Render's dynamically allocated HTTP port
       - key: SERVER_PORT
-        value: "8080"
+        fromEnvVar: PORT
+      # Automatically resolve the Go service host
       - key: GO_SERVICE_HOST
         fromService:
           name: tick-gameserver
-          type: pserv
+          type: web
           property: host
+      # Automatically resolve the Go service port
       - key: GO_SERVICE_PORT
-        value: "9090"
+        fromService:
+          name: tick-gameserver
+          type: web
+          property: port
