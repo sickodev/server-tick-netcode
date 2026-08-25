@@ -130,6 +130,60 @@ export class Renderer {
    * @param aimAngle     - Optional aim direction angle in radians (0 = facing right).
    * @param label        - Optional text label to render above the player entity.
    */
+  /**
+   * Draws a health bar above a player entity.
+   *
+   * @param x      - Center X position of the player.
+   * @param y      - Center Y position of the player.
+   * @param radius - Player circle radius.
+   * @param health - Current hit points (0-100).
+   */
+  public drawHealthBar(x: number, y: number, radius: number, health: number): void {
+    const { ctx } = this;
+    const barW = 40;
+    const barH = 6;
+    const barX = x - barW / 2;
+    const barY = y - radius - 18;
+
+    ctx.save();
+
+    // Background track
+    ctx.fillStyle = '#1e1e2e';
+    ctx.fillRect(barX, barY, barW, barH);
+
+    // Health fill
+    const healthPercent = Math.max(0, Math.min(100, health)) / 100;
+    if (healthPercent > 0) {
+      let fillColor = '#2ed573'; // Green
+      if (healthPercent <= 0.25) {
+        fillColor = '#ff4757'; // Red
+      } else if (healthPercent <= 0.5) {
+        fillColor = '#ffa500'; // Orange
+      }
+      ctx.fillStyle = fillColor;
+      ctx.fillRect(barX, barY, barW * healthPercent, barH);
+    }
+
+    // Border
+    ctx.strokeStyle = healthPercent === 0 ? '#ff4757' : '#ffffff';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(barX, barY, barW, barH);
+
+    ctx.restore();
+  }
+
+  /**
+   * Draws a player circle entity with specified fill, outline, aim indicator, and health bar.
+   *
+   * @param x            - Horizontal center position in pixels.
+   * @param y            - Vertical center position in pixels.
+   * @param radius       - Radius of the player circle in pixels (defaults to PLAYER_RADIUS).
+   * @param fillColor    - Fill color string (e.g. hex or rgba).
+   * @param outlineColor - Outline stroke color string.
+   * @param aimAngle     - Optional aim direction angle in radians (0 = facing right).
+   * @param label        - Optional text label to render above the player entity.
+   * @param health       - Health points (0-100, defaults to 100).
+   */
   public drawPlayer(
     x: number,
     y: number,
@@ -137,25 +191,27 @@ export class Renderer {
     fillColor: string = RENDER_CONFIG.PLAYER_LOCAL_COLOR,
     outlineColor: string = RENDER_CONFIG.PLAYER_OUTLINE_COLOR,
     aimAngle?: number,
-    label?: string
+    label?: string,
+    health: number = 100
   ): void {
     const { ctx } = this;
+    const isEliminated = health <= 0;
 
     ctx.save();
 
-    // Draw player body circle
+    // Draw player body circle (dimmed / ghost if eliminated)
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, Math.PI * 2, false);
-    ctx.fillStyle = fillColor;
+    ctx.fillStyle = isEliminated ? 'rgba(255, 71, 87, 0.25)' : fillColor;
     ctx.fill();
 
     // Draw outer boundary ring
     ctx.lineWidth = RENDER_CONFIG.PLAYER_OUTLINE_WIDTH;
-    ctx.strokeStyle = outlineColor;
+    ctx.strokeStyle = isEliminated ? '#ff4757' : outlineColor;
     ctx.stroke();
 
-    // Draw directional aim line if an aim angle is provided
-    if (aimAngle !== undefined) {
+    // Draw directional aim line if alive and aim angle provided
+    if (!isEliminated && aimAngle !== undefined) {
       const endX = x + Math.cos(aimAngle) * RENDER_CONFIG.AIM_LINE_LENGTH;
       const endY = y + Math.sin(aimAngle) * RENDER_CONFIG.AIM_LINE_LENGTH;
 
@@ -167,13 +223,17 @@ export class Renderer {
       ctx.stroke();
     }
 
-    // Render player label above the entity circle if provided
-    if (label) {
-      ctx.fillStyle = RENDER_CONFIG.PLAYER_LABEL_COLOR;
+    // Render health bar
+    this.drawHealthBar(x, y, radius, health);
+
+    // Render player label above health bar
+    const displayLabel = isEliminated ? `${label || 'Player'} (RESPAWNING...)` : label;
+    if (displayLabel) {
+      ctx.fillStyle = isEliminated ? '#ff4757' : RENDER_CONFIG.PLAYER_LABEL_COLOR;
       ctx.font = RENDER_CONFIG.PLAYER_LABEL_FONT;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      ctx.fillText(label, x, y - radius - 6);
+      ctx.fillText(displayLabel, x, y - radius - 22);
     }
 
     ctx.restore();
@@ -187,6 +247,7 @@ export class Renderer {
   public drawRemotePlayers(entities: EntityState[]): void {
     for (const entity of entities) {
       const label = entity.id ? `P-${entity.id.slice(0, 4)}` : 'Remote';
+      const health = entity.health !== undefined ? entity.health : 100;
       this.drawPlayer(
         entity.x,
         entity.y,
@@ -194,7 +255,8 @@ export class Renderer {
         RENDER_CONFIG.PLAYER_REMOTE_COLOR,
         RENDER_CONFIG.PLAYER_OUTLINE_COLOR,
         entity.angle,
-        label
+        label,
+        health
       );
     }
   }
@@ -330,7 +392,8 @@ export class Renderer {
     aimAngle?: number,
     remoteEntities: EntityState[] = [],
     bullets: BulletState[] = [],
-    extrapolationSeconds: number = 0
+    extrapolationSeconds: number = 0,
+    localHealth: number = 100
   ): void {
     this.clear();
     this.drawArena();
@@ -343,7 +406,9 @@ export class Renderer {
       PLAYER_RADIUS,
       RENDER_CONFIG.PLAYER_LOCAL_COLOR,
       RENDER_CONFIG.PLAYER_OUTLINE_COLOR,
-      aimAngle
+      aimAngle,
+      'You',
+      localHealth
     );
   }
 }

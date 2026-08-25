@@ -55,6 +55,9 @@ export class PredictionEngine {
   /** Last calculated prediction error distance in pixels between client prediction and server state */
   private predictionError: number = 0;
 
+  /** Current hit points pool of the local player entity (0-100) */
+  private health: number = 100;
+
   /**
    * Initializes the PredictionEngine at a given starting position.
    *
@@ -116,6 +119,15 @@ export class PredictionEngine {
    * @returns The updated local predicted position and aim angle.
    */
   public predict(cmd: UserCmd, dt: number): { x: number; y: number; angle: number } {
+    // If local player is dead (0 HP), freeze local prediction and ignore movement inputs
+    if (this.health <= 0) {
+      return {
+        x: this.predictedX,
+        y: this.predictedY,
+        angle: this.predictedAngle,
+      };
+    }
+
     // 1. Simulate movement on current local predicted state
     const state = {
       x: this.predictedX,
@@ -156,6 +168,19 @@ export class PredictionEngine {
    * @param ackSeq       - Highest UserCmd sequence number acknowledged by the server.
    */
   public reconcile(serverEntity: EntityState, ackSeq: number): void {
+    // Update local health state from authoritative server snapshot
+    this.health = serverEntity.health ?? 100;
+
+    // If local player is eliminated (0 HP), snap to server position and clear unACKed commands
+    if (this.health <= 0) {
+      this.predictedX = serverEntity.x;
+      this.predictedY = serverEntity.y;
+      this.predictedAngle = serverEntity.angle;
+      this.unackedBuffer = [];
+      this.predictionError = 0;
+      return;
+    }
+
     // Ignore stale or out-of-order acknowledgements
     if (ackSeq < this.lastAckSeq && this.lastAckSeq > 0) {
       return;
@@ -257,6 +282,15 @@ export class PredictionEngine {
    */
   public getLastAckSeq(): number {
     return this.lastAckSeq;
+  }
+
+  /**
+   * Returns current health of the local player.
+   *
+   * @returns Health value (0-100).
+   */
+  public getHealth(): number {
+    return this.health;
   }
 
   /**

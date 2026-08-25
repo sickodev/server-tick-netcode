@@ -210,9 +210,10 @@ export class GameEngine {
    * remote players, extrapolated projectiles, and particle visual effects.
    */
   private render(): void {
-    // 1. Retrieve local player predicted coordinates and aim angle
+    // 1. Retrieve local player predicted coordinates, aim angle, and health
     const localPos = this.predictionEngine.getPosition();
     const localAngle = this.predictionEngine.getAngle();
+    const localHealth = this.predictionEngine.getHealth();
 
     // 2. Story F11: Retrieve smoothly interpolated remote player entities
     const interpolatedEntities = this.interpBuffer.getInterpolatedEntities();
@@ -234,7 +235,8 @@ export class GameEngine {
       localAngle,
       remoteEntities,
       this.bullets,
-      extrapolationSeconds
+      extrapolationSeconds,
+      localHealth
     );
   }
 
