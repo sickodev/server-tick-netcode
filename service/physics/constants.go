@@ -18,8 +18,20 @@ const (
 	// BulletSpeed is the travel speed of projectile bullets in pixels per second.
 	BulletSpeed = 600.0
 
+	// BulletRadius is the physical bounding radius of projectile bullets in pixels.
+	BulletRadius = 5.0
+
 	// BulletDamage is the amount of hit points deducted when a bullet impacts a player.
 	BulletDamage = 25
+
+	// FireCooldownTicks is the mandatory tick cooldown between consecutive weapon discharges (16 ticks @ 64Hz = 4 shots/sec).
+	FireCooldownTicks = 16
+
+	// InterpTicks is the client-side entity interpolation buffer delay in ticks (~31.25ms).
+	InterpTicks = 2
+
+	// RespawnDelaySeconds is the delay duration in seconds before an eliminated player is respawned.
+	RespawnDelaySeconds = 3.0
 
 	// TickRate is the simulation rate in Hz (updates per second).
 	TickRate = 64

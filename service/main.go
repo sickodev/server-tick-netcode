@@ -46,8 +46,8 @@ func main() {
 		worldState.Tick = t
 		worldState.Mu.Unlock()
 
-		// Drain client input queues and apply movement physics for all connected players.
-		physics.ProcessCommands(worldState, physics.TickDuration)
+		// Execute authoritative simulation tick (movement, bullets, lag-comp hit detection, history recording).
+		physics.SimulateWorld(worldState, physics.TickDuration)
 
 		// Broadcast authoritative snapshots to all connected players.
 		netcodeNet.BroadcastSnapshots(worldState)

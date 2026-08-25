@@ -3,8 +3,10 @@
 package world
 
 import (
+	"log"
 	"math/rand"
 	"sync"
+	"time"
 
 	"github.com/server-tick-netcode/service/proto/pb"
 )
@@ -68,6 +70,8 @@ type PlayerState struct {
 	Health int
 	// Speed is the movement speed in pixels per second.
 	Speed float64
+	// LastFireTick is the server tick timestamp when the player last fired their weapon.
+	LastFireTick int64
 }
 
 // BulletState represents an active projectile in flight within the arena.
@@ -105,6 +109,8 @@ type WorldState struct {
 	LastAckSeq map[string]uint32
 	// SnapChs holds the snapshot output channels for each connected player session.
 	SnapChs map[string]chan *pb.ServerMessage
+	// History retains the circular history ring buffer of past player states for lag compensation.
+	History *HistoryBuffer
 }
 
 // NewWorldState creates and initializes a fresh WorldState instance with empty entity collections.
@@ -115,7 +121,16 @@ func NewWorldState() *WorldState {
 		Queues:     make(map[string]*PlayerQueue),
 		LastAckSeq: make(map[string]uint32),
 		SnapChs:    make(map[string]chan *pb.ServerMessage),
+		History:    NewHistoryBuffer(),
 	}
+}
+
+// RecordHistory captures a deep-copied snapshot of current player positions into the lag compensation history buffer.
+// This method is thread-safe and acquires a read lock on the world state.
+func (w *WorldState) RecordHistory() {
+	w.Mu.RLock()
+	defer w.Mu.RUnlock()
+	w.History.Record(w.Tick, w.Players)
 }
 
 // AddPlayer spawns a new player with InitialHealth in the inner 80% area of the arena.
@@ -217,4 +232,81 @@ func (w *WorldState) EnqueueCmd(playerID string, cmd UserCmd) bool {
 			return false
 		}
 	}
+}
+
+// RespawnPlayer restores an eliminated player with InitialHealth at a random inner-80% arena coordinate.
+// If the player's connection session was removed in the interim, respawn is aborted.
+// This method is thread-safe and acquires a write lock.
+func (w *WorldState) RespawnPlayer(id string) *PlayerState {
+	w.Mu.Lock()
+	defer w.Mu.Unlock()
+
+	// If player was completely unregistered (disconnected), do not respawn
+	if _, registered := w.Queues[id]; !registered {
+		return nil
+	}
+
+	minX := ArenaW * 0.10
+	maxX := ArenaW * 0.90
+	minY := ArenaH * 0.10
+	maxY := ArenaH * 0.90
+
+	spawnX := minX + rand.Float64()*(maxX-minX)
+	spawnY := minY + rand.Float64()*(maxY-minY)
+
+	player := &PlayerState{
+		ID:           id,
+		X:            spawnX,
+		Y:            spawnY,
+		Angle:        0.0,
+		Health:       InitialHealth,
+		Speed:        DefaultSpeed,
+		LastFireTick: 0,
+	}
+
+	w.Players[id] = player
+	log.Printf("[respawn] player %s respawned at (%.2f, %.2f)\n", id, spawnX, spawnY)
+	return player
+}
+
+// ApplyDamageUnlocked applies damage hit points to a target player assuming the caller holds w.Mu.
+// Returns the target's remaining health and a boolean indicating whether elimination occurred.
+func (w *WorldState) ApplyDamageUnlocked(shooterID, targetID string, damage int, respawnDelay time.Duration) (int, bool) {
+	target, exists := w.Players[targetID]
+	if !exists || target.Health <= 0 {
+		return 0, false
+	}
+
+	target.Health -= damage
+	if target.Health < 0 {
+		target.Health = 0
+	}
+
+	remainingHealth := target.Health
+	log.Printf("[hit] %s -> %s (health: %d)\n", shooterID, targetID, remainingHealth)
+
+	if remainingHealth == 0 {
+		log.Printf("[elimination] player %s eliminated by %s\n", targetID, shooterID)
+		// Remove player from live active map immediately
+		delete(w.Players, targetID)
+
+		if respawnDelay > 0 {
+			time.AfterFunc(respawnDelay, func() {
+				w.RespawnPlayer(targetID)
+			})
+		}
+		return 0, true
+	}
+
+	return remainingHealth, false
+}
+
+// ApplyDamage deducts damage hit points from target player, enforces a 0 HP floor,
+// and schedules an automatic respawn if the player is eliminated (health reaches 0).
+// Returns the target's remaining health and a boolean indicating whether elimination occurred.
+// This method is thread-safe and acquires a write lock.
+func (w *WorldState) ApplyDamage(shooterID, targetID string, damage int, respawnDelay time.Duration) (int, bool) {
+	w.Mu.Lock()
+	defer w.Mu.Unlock()
+	return w.ApplyDamageUnlocked(shooterID, targetID, damage, respawnDelay)
 }
