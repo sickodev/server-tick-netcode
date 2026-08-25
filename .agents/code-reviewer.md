@@ -28,6 +28,7 @@ For every branch submitted for review, run through this checklist in order. Stop
 - [ ] No commit bundles unrelated files
 - [ ] No committed `.env`, `node_modules/`, `target/`, `dist/`, `*.exe`, `.idea/`, `.vscode/`
 - [ ] No generated protobuf files committed (`*.pb.go`, `*Grpc.java`, `*OuterClass.java`)
+- [ ] A CHANGE SUMMARY (§11.1 of AGENTS.md) was posted for every commit on this branch
 
 ---
 
@@ -90,7 +91,16 @@ For every branch submitted for review, run through this checklist in order. Stop
 
 ---
 
-### Step 6 — The Physics Invariant (applies to `fe#F09` and `ser#S04`)
+### Step 6 — Code Comments Enforcement
+
+- [ ] All exported (public) functions/methods have doc comments explaining what they do, params, and returns
+- [ ] All structs/classes/interfaces have type-level purpose comments
+- [ ] Non-obvious logic blocks have inline comments explaining the *why*
+- [ ] All constants have comments explaining their gameplay effect
+
+---
+
+### Step 7 — The Physics Invariant (applies to `fe#F09` and `ser#S04`)
 
 > [!CAUTION]
 > When reviewing any branch touching `PredictionEngine.ts` or `physics/movement.go`:
@@ -112,11 +122,12 @@ Date: YYYY-MM-DD
 ### Result: ✅ APPROVED | 🔄 CHANGES REQUESTED | ❌ BLOCKED
 
 ### Checklist
-- [x] Commit hygiene
+- [x] Commit hygiene (including CHANGE SUMMARY)
 - [x] Build gate
 - [x] Test gate
 - [x] Service-specific checks
 - [x] Story DoD complete
+- [x] Code comments enforcement
 - [x] Physics invariant (if applicable)
 
 ### Notes

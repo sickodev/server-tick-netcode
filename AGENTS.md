@@ -239,17 +239,142 @@ ser#S11–S14 — lag compensation: history buffer, bullets, hit detection
 | **Log with context** | Every log line includes the agent's service prefix: `[ws]`, `[grpc]`, `[tick]`, `[hit]`, etc. |
 | **Respect the dependency order** | Do not start a story if its prerequisite stories are not merged to `main` |
 | **Ask before assuming** | If a story is ambiguous or a dependency is unclear, post a question in the handoff log rather than guessing |
+| **Explain every change** | After completing any file change, write a plain-English summary of what was done and why — see §11 |
+| **Comment all code** | Every function, struct, class, and non-obvious block must have a comment — see §11 |
 
 ---
 
-## 10. Quick Reference
+## 11. Communication & Code Comments
+
+### 11.1 Explain every change to the project owner
+
+After every commit, the owning agent must post a short plain-English explanation of:
+- **What** was added or changed
+- **Why** it is needed (which problem it solves)
+- **How** it works at a high level — no jargon, no assumed knowledge
+
+This explanation is written for someone who is not a developer and needs to be able to describe the feature to others.
+
+**Format:**
+```
+CHANGE SUMMARY: <story-id> — <file changed>
+
+What:  Added the game loop that runs 64 times per second on the server.
+Why:   The server needs a fixed heartbeat to process player inputs and
+       update everyone's positions at the same rate, regardless of how
+       fast each player's computer is.
+How:   A Go ticker fires every 15.6ms. Each tick it reads any pending
+       player commands, moves players, and sends updated positions to
+       all connected clients.
+```
+
+### 11.2 Comment all code — mandatory standards
+
+Comments are not optional. Every agent must follow these rules for every file they write.
+
+#### Functions / Methods
+Every exported (public) function must have a comment explaining:
+- What it does
+- What each parameter means
+- What it returns and when
+
+```go
+// ApplyMovement updates the player's position and aim angle for one tick.
+// dx and dy are normalised movement direction (-1, 0, or 1).
+// aimAngle is the direction the player is facing in radians.
+// dt is the elapsed time in seconds since the last tick.
+// The player is clamped to the arena boundary after moving.
+func ApplyMovement(p *PlayerState, dx, dy, aimAngle, dt float64) {
+```
+
+```ts
+/**
+ * Simulates one frame of local player movement without waiting for the server.
+ * Called every frame so the player's own character feels instantly responsive.
+ *
+ * @param cmd  - The input command captured this frame (keys held, mouse angle)
+ * @param dt   - Time since last frame in seconds (keeps speed frame-rate independent)
+ */
+applyMovement(cmd: UserCmd, dt: number): void {
+```
+
+```java
+/**
+ * Forwards a parsed UserCmd from the WebSocket session to the Go game service
+ * over the player's dedicated gRPC stream.
+ *
+ * @param sessionId - the WebSocket session that sent this command
+ * @param cmd       - the parsed command (movement direction, aim angle, fire flag)
+ */
+public void forwardUserCmd(String sessionId, UserCmdMessage cmd) {
+```
+
+#### Structs / Classes / Interfaces
+Every type definition must have a comment explaining its purpose in the system.
+
+```go
+// PlayerState holds the authoritative server-side state for one connected player.
+// All fields are written only inside the tick loop under the world mutex.
+type PlayerState struct {
+    ID     string  // unique player identifier assigned on join
+    X, Y   float64 // position in pixels within the arena
+    Angle  float64 // aim direction in radians (0 = right, counter-clockwise positive)
+    Health int     // current health points; elimination occurs at 0
+    Speed  float64 // movement speed in pixels per second
+}
+```
+
+#### Non-obvious logic blocks
+Any block of code that is not immediately obvious to a reader must have an inline comment explaining the reasoning — not just what the code does, but **why**.
+
+```go
+// Rewind to what the shooter actually saw on their screen.
+// Their client was rendering the world (latencyTicks + interpTicks) ago,
+// so we look up the world state at that past tick to do hit detection.
+// Without this rewind, high-latency players would never be able to hit anyone.
+rewindTick := currentTick - shooterLatencyTicks - physics.InterpTicks
+```
+
+```ts
+// Re-simulate all commands that haven't been acknowledged by the server yet.
+// The server just told us where we were at command #ackSeq — but we've sent
+// more commands since then. We replay those from the corrected position so
+// our predicted position stays current without waiting for the next snapshot.
+for (const cmd of this.unackedBuffer) {
+    this.applyMovement(cmd, TICK_DURATION / 1000);
+}
+```
+
+#### Constants
+Every constant must explain its value and its effect on gameplay.
+
+```go
+const (
+    TickRate     = 64    // server update frequency in Hz — higher = smoother, more CPU
+    HistorySize  = 128   // number of past world states kept for lag compensation (~2 seconds)
+    BulletDamage = 25    // HP removed per bullet hit — 4 hits to eliminate a player
+)
+```
+
+### 11.3 The `code-reviewer` agent enforces comments
+
+The `code-reviewer` agent will reject any PR where:
+- An exported function has no doc comment
+- A struct or class has no type-level comment
+- A non-obvious algorithm block has no inline explanation
+- A constant has no comment explaining its gameplay effect
+
+---
+
+## 12. Quick Reference
 
 ```
 Start a story
   └── git checkout -b <prefix>/<story-id>-<desc>
 
 After every file change
-  └── git add <file> && git commit -m "<prefix>#<id> - <message>"
+  ├── git add <file> && git commit -m "<prefix>#<id> - <message>"
+  └── post CHANGE SUMMARY (§11.1) for the project owner
 
 Story complete
   ├── run all tests
