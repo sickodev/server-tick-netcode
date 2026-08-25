@@ -1,0 +1,55 @@
+# Qodo PR-Agent Configuration
+# Reference: https://pr-agent-docs.codium.ai/tools/
+
+[pr_reviewer]
+# Extra instructions specifically enforcing AGENTS.md standards
+extra_instructions = """
+You are acting as the 'code-reviewer' agent defined in AGENTS.md.
+Evaluate the PR against these critical invariants:
+
+1. Commit & PR Title Convention:
+   - Must match `<prefix>#<story-id> - <imperative verb phrase>`
+   - Valid prefixes: fe (Frontend), gat (Gateway), ser (Service), proto (Proto), ops (DevOps), all (Cross-cutting).
+
+2. Physics Invariant (CRITICAL):
+   - service/physics/movement.go ApplyMovement() and frontend/src/game/PredictionEngine.ts applyMovement() must produce identical results for identical inputs.
+   - Constants ArenaW, ArenaH, PlayerSpeed, and PlayerRadius must be identical across Go and TypeScript.
+
+3. Code Documentation & Comments:
+   - All exported/public functions, structs, classes, and interfaces must have doc comments explaining purpose, parameters, and returns.
+   - Non-obvious logic blocks must have inline explanatory comments.
+   - Constants must have comments explaining their gameplay effect.
+
+4. Service-Specific Rules:
+   - Frontend: No console.error in production paths. Zero TypeScript errors.
+   - Gateway: player_id is never read from client body (only from session). No hardcoded IPs/ports.
+   - Service (Go): Zero map writes without mutex lock. Goroutines must have context.Done() exit paths.
+
+5. PR Completeness:
+   - PR description must include: What was done, Why it was needed, How it works, DoD checklist, and Test evidence.
+   - No committed secrets, .env files, build artifacts (target/, dist/, node_modules/), or leftover TODO comments.
+
+Clearly state either:
+- '### Status: ✅ APPROVED' (if all rules pass)
+- '### Status: 🔄 CHANGES REQUESTED' (with bullet points of exact violations to fix)
+"""
+
+[pr_description]
+publish_description_as_comment = false
+extra_instructions = """
+Ensure the summary cleanly separates:
+1. 'What was changed' (plain English)
+2. 'Why it was needed'
+3. 'How it works'
+4. Stories covered and service prefix.
+"""
+
+[pr_code_suggestions]
+num_code_suggestions = 4
+extra_instructions = """
+Focus suggestions on:
+- Concurrency safety in Go and Java.
+- Frame-rate independent physics calculations.
+- Missing doc comments on exported symbols.
+- Adherence to AGENTS.md standards.
+"""
