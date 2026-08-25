@@ -1,6 +1,27 @@
-server:
-  port: 8080
+# ==============================================================================
+# Spring Boot Gateway Application Configuration
+# ==============================================================================
 
+server:
+  # HTTP and WebSocket listening port for the Gateway service.
+  # Configurable via the PORT environment variable; defaults to 8080.
+  port: ${PORT:8080}
+
+spring:
+  application:
+    # Identifier for this microservice across logs and metrics.
+    name: gateway
+  main:
+    # Print the custom ASCII banner to the console upon application startup.
+    banner-mode: console
+
+# ==============================================================================
+# Go Game Service gRPC Connection Configuration
+# ==============================================================================
 go-service:
-  host: localhost
-  port: 9090
+  # Host address of the backend Go authoritative game service.
+  # Configurable via GO_SERVICE_HOST; defaults to localhost.
+  host: ${GO_SERVICE_HOST:localhost}
+  # gRPC port of the backend Go authoritative game service.
+  # Configurable via GO_SERVICE_PORT; defaults to 9090.
+  port: ${GO_SERVICE_PORT:9090}
