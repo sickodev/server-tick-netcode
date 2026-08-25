@@ -139,23 +139,37 @@ Implement the `onNext` handler of the gRPC `StreamObserver<ServerMessage>`. When
 ---
 
 ### STORY-G09 · Token-Bucket Rate Limiter & Disconnect Cleanup
+### STORY-G09 · Handle player disconnect and clean up session
 **Complexity:** `S`
 
 **Description**
-Implement token-bucket rate limiter per WebSocket session (max 128 commands/sec, burst capacity 16). In `GameWebSocketHandler.handleUserCmd`, check rate limit, drop command if exceeded, log warning `[rate-limit]` with 1-second throttle, and increment dropped command metric. On WebSocket close or error, send `LeaveRequest` proto on the player's gRPC stream, cancel/complete stream, and remove session from `SessionManager` and `RateLimiter`.
+When a WebSocket connection closes (browser refresh, tab close, or network drop), send a `LeaveRequest` message over the player's gRPC stream, then cancel the stream and remove the session from `SessionManager`.
 
 **Definition of Done**
-- [x] Per-session Token-Bucket rate limiter enforcing max 128 cmds/sec with 16-burst capacity in `RateLimiter.java`
-- [x] Sessions sending > 128 `usercmd`/sec have excess messages silently dropped
-- [x] Rate-limit warning logged at most once per second per offending session (`[rate-limit]`)
 - [x] WebSocket close triggers `LeaveRequest` proto → Go service
-- [x] gRPC stream is completed after `LeaveRequest` is sent
-- [x] Session state removed cleanly from `SessionManager` and `RateLimiter`
-- [x] No memory leak: repeated connect/disconnect cycles do not grow session or bucket maps
+- [x] gRPC stream is cancelled after `LeaveRequest` is sent
+- [x] Session is removed from `SessionManager` map
+- [x] No memory leak: repeated connect/disconnect cycles do not grow the session map
+- [x] Go service log shows player leaving when the browser tab is closed
 
 ---
 
-### STORY-G10 · Input Validation & Sanitization
+### STORY-G10 · Add per-session rate limiting on `usercmd` messages
+**Complexity:** `S`
+
+**Description**
+Limit each WebSocket session to a maximum of `MAX_CMDS_PER_SECOND = 128` `usercmd` messages per second (2× the server tick rate as headroom). Drop excess messages and log a warning with the session ID.
+
+**Definition of Done**
+- [x] Sessions sending > 128 `usercmd`/sec have excess messages silently dropped
+- [x] A warning is logged once per second per offending session (not per dropped message)
+- [x] Sessions within the limit are unaffected
+- [x] Rate limiter state is per-session (one session cannot affect another)
+- [x] Rate limiter is reset on reconnect
+
+---
+
+### STORY-G11 · Input Validation & Sanitization
 **Complexity:** `S`
 
 **Description**
