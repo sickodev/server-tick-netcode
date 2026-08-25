@@ -45,9 +45,12 @@ func NewGameHandler(w *world.WorldState) *GameHandler {
 // and starts serving requests. It listens for context cancellation to initiate GracefulStop.
 func StartGRPC(ctx context.Context, w *world.WorldState, port string) (*grpc.Server, net.Listener, error) {
 	if port == "" {
-		port = os.Getenv("GRPC_PORT")
+		port = os.Getenv("PORT")
 		if port == "" {
-			port = DefaultGRPCPort
+			port = os.Getenv("GRPC_PORT")
+			if port == "" {
+				port = DefaultGRPCPort
+			}
 		}
 	}
 
