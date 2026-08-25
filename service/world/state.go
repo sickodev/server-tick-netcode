@@ -5,6 +5,8 @@ package world
 import (
 	"math/rand"
 	"sync"
+
+	"github.com/server-tick-netcode/service/proto/pb"
 )
 
 const (
@@ -101,6 +103,8 @@ type WorldState struct {
 	Queues map[string]*PlayerQueue
 	// LastAckSeq maps each player ID to the highest UserCmd sequence number applied.
 	LastAckSeq map[string]uint32
+	// SnapChs holds the snapshot output channels for each connected player session.
+	SnapChs map[string]chan *pb.ServerMessage
 }
 
 // NewWorldState creates and initializes a fresh WorldState instance with empty entity collections.
@@ -110,6 +114,7 @@ func NewWorldState() *WorldState {
 		Bullets:    make([]*BulletState, 0),
 		Queues:     make(map[string]*PlayerQueue),
 		LastAckSeq: make(map[string]uint32),
+		SnapChs:    make(map[string]chan *pb.ServerMessage),
 	}
 }
 
@@ -145,6 +150,24 @@ func (w *WorldState) AddPlayer(id string) *PlayerState {
 	return player
 }
 
+// RegisterSnapshotCh registers a snapshot broadcast channel for the specified player ID.
+// This method is thread-safe and acquires a write lock.
+func (w *WorldState) RegisterSnapshotCh(id string, ch chan *pb.ServerMessage) {
+	w.Mu.Lock()
+	defer w.Mu.Unlock()
+	w.SnapChs[id] = ch
+}
+
+// UnregisterSnapshotCh removes and returns the snapshot channel for the specified player ID.
+// This method is thread-safe and acquires a write lock.
+func (w *WorldState) UnregisterSnapshotCh(id string) chan *pb.ServerMessage {
+	w.Mu.Lock()
+	defer w.Mu.Unlock()
+	ch := w.SnapChs[id]
+	delete(w.SnapChs, id)
+	return ch
+}
+
 // RemovePlayer eliminates a player from the world and removes all bullets owned by them.
 // This method is thread-safe and acquires a write lock.
 func (w *WorldState) RemovePlayer(id string) {
@@ -154,6 +177,7 @@ func (w *WorldState) RemovePlayer(id string) {
 	delete(w.Players, id)
 	delete(w.Queues, id)
 	delete(w.LastAckSeq, id)
+	delete(w.SnapChs, id)
 
 	// Filter out all bullets fired by the removed player
 	retainedBullets := make([]*BulletState, 0, len(w.Bullets))
