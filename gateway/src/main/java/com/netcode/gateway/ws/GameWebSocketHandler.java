@@ -277,6 +277,20 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
             var joinResp = msg.getJoinResponse();
             log.info("[grpc] session {} received JoinResponse: ok={}, spawn=({}, {})",
                     sessionId, joinResp.getOk(), joinResp.getSpawnX(), joinResp.getSpawnY());
+            try {
+                String joinJson = String.format(
+                        "{\"type\":\"joinResponse\",\"ok\":%b,\"spawnX\":%.2f,\"spawnY\":%.2f,\"spawn_x\":%.2f,\"spawn_y\":%.2f}",
+                        joinResp.getOk(), joinResp.getSpawnX(), joinResp.getSpawnY(), joinResp.getSpawnX(), joinResp.getSpawnY());
+                if (session.isOpen()) {
+                    synchronized (session) {
+                        if (session.isOpen()) {
+                            session.sendMessage(new TextMessage(joinJson));
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.error("[grpc] session {} error sending join response: {}", sessionId, e.getMessage(), e);
+            }
         }
 
         if (msg.hasSnapshot()) {
