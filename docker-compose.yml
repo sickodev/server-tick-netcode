@@ -1,0 +1,60 @@
+services:
+
+  # ──────────────────────────────────────────
+  # Go Game Service  →  :9090 (gRPC)
+  # ──────────────────────────────────────────
+  service:
+    build:
+      context: ./service
+      dockerfile: Dockerfile
+    ports:
+      - "9090:9090"
+    environment:
+      GRPC_PORT: "9090"
+      ARENA_W: "1200"
+      ARENA_H: "800"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9090"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ──────────────────────────────────────────
+  # Java Gateway  →  :8080 (WebSocket)
+  # ──────────────────────────────────────────
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      GO_SERVICE_HOST: service
+      GO_SERVICE_PORT: "9090"
+      SERVER_PORT: "8080"
+    depends_on:
+      service:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ──────────────────────────────────────────
+  # React Frontend  →  :3000 (nginx)
+  # ──────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_GATEWAY_URL: ${VITE_GATEWAY_URL:-ws://localhost:8080/ws}
+    ports:
+      - "3000:80"
+    depends_on:
+      gateway:
+        condition: service_healthy
+    restart: unless-stopped

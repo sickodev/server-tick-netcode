@@ -1,0 +1,17 @@
+# Maven build output
+target/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Protobuf generated sources (regenerated at build time)
+src/main/java/com/netcode/gateway/proto/
+src/main/proto/generated/

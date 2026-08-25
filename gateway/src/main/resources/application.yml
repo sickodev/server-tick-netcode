@@ -1,0 +1,6 @@
+server:
+  port: 8080
+
+go-service:
+  host: localhost
+  port: 9090

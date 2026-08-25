@@ -1,0 +1,11 @@
+# Local docker-compose env overrides
+.env
+
+# IDE
+.idea/
+.vscode/
+*.suo
+
+# OS
+.DS_Store
+Thumbs.db

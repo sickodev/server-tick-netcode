@@ -1,0 +1,7 @@
+# Go game service
+service/gameserver
+service/*.exe
+
+# OS
+.DS_Store
+Thumbs.db

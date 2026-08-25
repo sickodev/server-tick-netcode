@@ -1,0 +1,26 @@
+# Go build output
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+service
+
+# Test output
+*.test
+*.out
+
+# Go workspace (not used here)
+go.work
+go.work.sum
+
+# Protobuf generated files (regenerated via go generate)
+proto/*.pb.go
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
