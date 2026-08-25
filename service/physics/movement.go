@@ -56,14 +56,18 @@ func ProcessCommands(w *world.WorldState, dt float64) {
 		// Apply the latest command for this tick if one was received
 		if latestCmd != nil {
 			if player, exists := w.Players[id]; exists {
-				ApplyMovement(player, latestCmd.DX, latestCmd.DY, latestCmd.AimAngle, dt)
 				w.LastAckSeq[id] = latestCmd.Seq
 
-				// If the fire flag is set and cooldown is satisfied, spawn a projectile bullet
-				if latestCmd.Fire && CanFire(player, w.Tick) {
-					bullet := SpawnBullet(id, player.X, player.Y, latestCmd.AimAngle, w.Tick)
-					player.LastFireTick = w.Tick
-					w.Bullets = append(w.Bullets, bullet)
+				// Only process movement and weapon firing if player is alive (Health > 0)
+				if player.Health > 0 {
+					ApplyMovement(player, latestCmd.DX, latestCmd.DY, latestCmd.AimAngle, dt)
+
+					// If the fire flag is set and cooldown is satisfied, spawn a projectile bullet
+					if latestCmd.Fire && CanFire(player, w.Tick) {
+						bullet := SpawnBullet(id, player.X, player.Y, latestCmd.AimAngle, w.Tick)
+						player.LastFireTick = w.Tick
+						w.Bullets = append(w.Bullets, bullet)
+					}
 				}
 			}
 		}

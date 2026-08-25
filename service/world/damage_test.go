@@ -74,12 +74,12 @@ func TestApplyDamage_EliminationAndRespawn(t *testing.T) {
 		t.Errorf("Hit 4: expected 0 HP with elimination, got %d (elim: %v)", h4, elim4)
 	}
 
-	// Target should be removed from active players map immediately
+	// Target should have 0 HP during respawn delay (retained for snapshot broadcasting)
 	w.Mu.RLock()
 	eliminatedPlayer := w.Players["target"]
 	w.Mu.RUnlock()
-	if eliminatedPlayer != nil {
-		t.Errorf("expected eliminated player to be removed immediately from Players map, got %+v", eliminatedPlayer)
+	if eliminatedPlayer == nil || eliminatedPlayer.Health != 0 {
+		t.Errorf("expected eliminated player to have 0 HP in Players map, got %+v", eliminatedPlayer)
 	}
 
 	// Wait for respawn timer to trigger

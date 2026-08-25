@@ -101,11 +101,11 @@ func TestSimulateWorld_EliminationAndHistory(t *testing.T) {
 	w.ApplyDamage("shooter", "target", 25, 20*time.Millisecond)
 
 	w.Mu.RLock()
-	_, existsBeforeRespawn := w.Players["target"]
+	targetPlayer, existsBeforeRespawn := w.Players["target"]
 	w.Mu.RUnlock()
 
-	if existsBeforeRespawn {
-		t.Errorf("expected target to be removed immediately from active players")
+	if !existsBeforeRespawn || targetPlayer.Health != 0 {
+		t.Errorf("expected target to have 0 HP in active players map before respawn")
 	}
 
 	// Wait for respawn

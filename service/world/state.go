@@ -287,9 +287,7 @@ func (w *WorldState) ApplyDamageUnlocked(shooterID, targetID string, damage int,
 
 	if remainingHealth == 0 {
 		log.Printf("[elimination] player %s eliminated by %s\n", targetID, shooterID)
-		// Remove player from live active map immediately
-		delete(w.Players, targetID)
-
+		// Retain player in w.Players with Health = 0 so all clients receive elimination status in snapshots
 		if respawnDelay > 0 {
 			time.AfterFunc(respawnDelay, func() {
 				w.RespawnPlayer(targetID)
