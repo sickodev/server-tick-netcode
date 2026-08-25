@@ -5,16 +5,19 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
+	netcodeNet "github.com/server-tick-netcode/service/net"
 	"github.com/server-tick-netcode/service/physics"
 	"github.com/server-tick-netcode/service/tick"
 	"github.com/server-tick-netcode/service/world"
+	"google.golang.org/grpc"
 )
 
-// main initializes signal traps, creates world state, and executes the game loop.
+// main initializes signal traps, creates world state, starts the gRPC server, and executes the game loop.
 func main() {
 	fmt.Println("game service starting…")
 
@@ -25,7 +28,19 @@ func main() {
 	// Initialize the authoritative global world state.
 	worldState := world.NewWorldState()
 
-	// Instantiate the tick loop with simulation processing and counter output.
+	// Bootstrap gRPC server listener with reflection and graceful shutdown wiring.
+	grpcServer, lis, err := netcodeNet.StartGRPC(ctx, worldState, "")
+	if err != nil {
+		log.Fatalf("failed to bootstrap gRPC server: %v", err)
+	}
+
+	go func() {
+		if err := grpcServer.Serve(lis); err != nil && err != grpc.ErrServerStopped {
+			log.Printf("gRPC server encountered error: %v\n", err)
+		}
+	}()
+
+	// Instantiate the tick loop with simulation processing and snapshot broadcasting.
 	loop := tick.NewLoop(func(t int64) {
 		worldState.Mu.Lock()
 		worldState.Tick = t
@@ -33,6 +48,9 @@ func main() {
 
 		// Drain client input queues and apply movement physics for all connected players.
 		physics.ProcessCommands(worldState, physics.TickDuration)
+
+		// Broadcast authoritative snapshots to all connected players.
+		netcodeNet.BroadcastSnapshots(worldState)
 
 		// Print periodic tick diagnostic to stdout once per second (every 64 ticks).
 		if t%physics.TickRate == 0 {
