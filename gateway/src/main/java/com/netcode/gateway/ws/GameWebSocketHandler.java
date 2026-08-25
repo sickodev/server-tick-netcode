@@ -3,9 +3,17 @@ package com.netcode.gateway.ws;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.netcode.gateway.ws.dto.ClientMessage;
+import com.google.protobuf.util.JsonFormat;
+import com.netcode.gateway.grpc.GoServiceClient;
+import com.netcode.gateway.proto.ClientMessage;
+import com.netcode.gateway.proto.JoinRequest;
+import com.netcode.gateway.proto.LeaveRequest;
+import com.netcode.gateway.proto.ServerMessage;
+import com.netcode.gateway.proto.UserCmd;
+import com.netcode.gateway.session.SessionManager;
 import com.netcode.gateway.ws.dto.JoinMessage;
 import com.netcode.gateway.ws.dto.UserCmdMessage;
+import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -14,11 +22,21 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
+import java.util.UUID;
+
 /**
- * Primary WebSocket handler responsible for lifecycle management and incoming message parsing.
+ * Primary WebSocket handler responsible for client lifecycle management, incoming JSON parsing,
+ * and bridging WebSocket messages to the backend Go authoritative game service via gRPC streams.
  *
- * <p>Maintains active WebSocket client sessions, parses incoming JSON text payloads into typed
- * {@link ClientMessage} records, and logs events with standard {@code [ws]} context prefixes.</p>
+ * <p>Key responsibilities:
+ * <ul>
+ *   <li>Establishes an isolated bidirectional gRPC stream per connected player upon join.</li>
+ *   <li>Assigns server-generated player IDs stored in {@link SessionManager} (never trusting client IDs).</li>
+ *   <li>Translates incoming WebSocket {@link UserCmdMessage} frames into Protobuf {@link UserCmd} messages.</li>
+ *   <li>Converts authoritative server {@link com.netcode.gateway.proto.Snapshot} proto updates into JSON frames.</li>
+ *   <li>Handles stream errors and client disconnect teardowns cleanly.</li>
+ * </ul>
+ * </p>
  */
 @Component
 public class GameWebSocketHandler extends TextWebSocketHandler {
@@ -26,14 +44,24 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
     private static final Logger log = LoggerFactory.getLogger(GameWebSocketHandler.class);
 
     private final ObjectMapper objectMapper;
+    private final GoServiceClient goServiceClient;
+    private final SessionManager sessionManager;
 
     /**
-     * Constructs the WebSocket handler with an injected Jackson {@link ObjectMapper}.
+     * Constructs the WebSocket handler with required dependencies.
      *
-     * @param objectMapper Shared JSON object mapper for deserializing client messages.
+     * @param objectMapper Shared JSON mapper for client message frames.
+     * @param goServiceClient gRPC client bridge to the Go game service.
+     * @param sessionManager Registry for active session streams and player IDs.
      */
-    public GameWebSocketHandler(ObjectMapper objectMapper) {
+    public GameWebSocketHandler(
+            ObjectMapper objectMapper,
+            GoServiceClient goServiceClient,
+            SessionManager sessionManager
+    ) {
         this.objectMapper = objectMapper;
+        this.goServiceClient = goServiceClient;
+        this.sessionManager = sessionManager;
     }
 
     /**
@@ -48,19 +76,44 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
 
     /**
      * Invoked when an existing WebSocket connection is closed.
+     * Cleans up the gRPC stream and removes session registration.
      *
      * @param session The closed WebSocket session.
      * @param status The status reason indicating why the session closed.
      */
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
-        log.info("[ws] session {} disconnected", session.getId());
+        String sessionId = session.getId();
+        log.info("[ws] session {} disconnected ({})", sessionId, status);
+
+        StreamObserver<ClientMessage> stream = sessionManager.getStream(sessionId);
+        String playerId = sessionManager.getPlayerId(sessionId);
+
+        if (stream != null) {
+            try {
+                if (playerId != null) {
+                    ClientMessage leaveMsg = ClientMessage.newBuilder()
+                            .setLeaveRequest(LeaveRequest.newBuilder()
+                                    .setPlayerId(playerId)
+                                    .build())
+                            .build();
+                    stream.onNext(leaveMsg);
+                }
+                stream.onCompleted();
+            } catch (Exception e) {
+                log.debug("[ws] session {} error completing gRPC stream: {}", sessionId, e.getMessage());
+            } finally {
+                sessionManager.removeSession(sessionId);
+            }
+        } else {
+            sessionManager.removeSession(sessionId);
+        }
     }
 
     /**
      * Handles incoming text messages over the WebSocket session.
      *
-     * <p>Parses the text payload into a {@link ClientMessage}. If the JSON is malformed
+     * <p>Parses the text payload into typed message records. If the JSON is malformed
      * or contains an unknown message type, logs appropriately without disconnecting the client.</p>
      *
      * @param session The WebSocket session transmitting the payload.
@@ -69,17 +122,17 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) {
         String payload = message.getPayload();
+        String sessionId = session.getId();
         try {
-            // First inspect message root to identify type and ensure graceful error handling
             JsonNode rootNode = objectMapper.readTree(payload);
             if (rootNode == null || !rootNode.isObject()) {
-                log.error("[ws] session {} received invalid JSON structure: {}", session.getId(), payload);
+                log.error("[ws] session {} received invalid JSON structure: {}", sessionId, payload);
                 return;
             }
 
             JsonNode typeNode = rootNode.get("type");
             if (typeNode == null || typeNode.isNull() || !typeNode.isTextual()) {
-                log.warn("[ws] session {} received message missing 'type' string property: {}", session.getId(), payload);
+                log.warn("[ws] session {} received message missing 'type' string property: {}", sessionId, payload);
                 return;
             }
 
@@ -87,19 +140,169 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
             switch (type) {
                 case "join" -> {
                     JoinMessage joinMsg = objectMapper.treeToValue(rootNode, JoinMessage.class);
-                    log.info("[ws] session {} parsed message type: join, player name: {}", session.getId(), joinMsg.name());
+                    handleJoin(session, joinMsg);
                 }
                 case "user_cmd" -> {
                     UserCmdMessage cmdMsg = objectMapper.treeToValue(rootNode, UserCmdMessage.class);
-                    log.info("[ws] session {} parsed message type: user_cmd, seq: {}", session.getId(), cmdMsg.seq());
+                    handleUserCmd(session, cmdMsg);
                 }
-                default -> log.warn("[ws] session {} received unknown message type '{}': {}", session.getId(), type, payload);
+                default -> log.warn("[ws] session {} received unknown message type '{}': {}", sessionId, type, payload);
             }
         } catch (JsonProcessingException e) {
-            // Malformed JSON should be logged as error while keeping the session open
-            log.error("[ws] session {} received malformed JSON payload: {}", session.getId(), payload, e);
+            log.error("[ws] session {} received malformed JSON payload: {}", sessionId, payload, e);
         } catch (Exception e) {
-            log.error("[ws] session {} unexpected error while parsing message: {}", session.getId(), e.getMessage(), e);
+            log.error("[ws] session {} unexpected error while parsing message: {}", sessionId, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Handles a join request from a WebSocket client.
+     *
+     * <p>Assigns a server-side player UUID, opens an isolated bidirectional gRPC stream to the
+     * Go game service, stores the stream in {@link SessionManager}, and sends an initial {@link JoinRequest}.</p>
+     *
+     * @param session The client's WebSocket session.
+     * @param joinMsg The parsed join message DTO.
+     */
+    private void handleJoin(WebSocketSession session, JoinMessage joinMsg) {
+        String sessionId = session.getId();
+
+        if (sessionManager.hasSession(sessionId)) {
+            log.warn("[ws] session {} already joined, ignoring duplicate join request", sessionId);
+            return;
+        }
+
+        String playerId = UUID.randomUUID().toString();
+        String playerName = (joinMsg.name() != null && !joinMsg.name().isBlank()) ? joinMsg.name() : "Anonymous";
+        log.info("[ws] session {} joining as player {} (name: {})", sessionId, playerId, playerName);
+
+        StreamObserver<ServerMessage> responseObserver = new StreamObserver<>() {
+            @Override
+            public void onNext(ServerMessage serverMessage) {
+                handleServerMessage(session, serverMessage);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                log.error("[grpc] session {} stream error: {}", sessionId, t.getMessage());
+                sessionManager.removeSession(sessionId);
+                closeWebSocketQuietly(session, CloseStatus.SERVER_ERROR);
+            }
+
+            @Override
+            public void onCompleted() {
+                log.info("[grpc] session {} stream completed by server", sessionId);
+                sessionManager.removeSession(sessionId);
+                closeWebSocketQuietly(session, CloseStatus.NORMAL);
+            }
+        };
+
+        try {
+            StreamObserver<ClientMessage> requestObserver = goServiceClient.play(responseObserver);
+            sessionManager.registerSession(sessionId, playerId, requestObserver);
+
+            ClientMessage joinRequestEnvelope = ClientMessage.newBuilder()
+                    .setJoinRequest(JoinRequest.newBuilder()
+                            .setPlayerId(playerId)
+                            .setName(playerName)
+                            .build())
+                    .build();
+
+            requestObserver.onNext(joinRequestEnvelope);
+            log.info("[grpc] session {} sent JoinRequest for playerId {}", sessionId, playerId);
+        } catch (Exception e) {
+            log.error("[grpc] failed to open gRPC play stream for session {}: {}", sessionId, e.getMessage(), e);
+            sessionManager.removeSession(sessionId);
+            closeWebSocketQuietly(session, CloseStatus.SERVER_ERROR);
+        }
+    }
+
+    /**
+     * Handles a user input command frame from a WebSocket client.
+     *
+     * <p>Converts the command into a {@link UserCmd} Protobuf message using the authenticated
+     * player ID from {@link SessionManager}, and forwards it onto the active gRPC stream.</p>
+     *
+     * @param session The client's WebSocket session.
+     * @param cmdMsg The parsed user command message DTO.
+     */
+    private void handleUserCmd(WebSocketSession session, UserCmdMessage cmdMsg) {
+        String sessionId = session.getId();
+        StreamObserver<ClientMessage> stream = sessionManager.getStream(sessionId);
+        String playerId = sessionManager.getPlayerId(sessionId);
+
+        if (stream == null || playerId == null) {
+            log.warn("[ws] session {} dropped user_cmd: stream not yet initialized", sessionId);
+            return;
+        }
+
+        long timestamp = (cmdMsg.timestamp() != null && cmdMsg.timestamp() > 0)
+                ? cmdMsg.timestamp()
+                : System.currentTimeMillis();
+
+        UserCmd protoCmd = UserCmd.newBuilder()
+                .setPlayerId(playerId)
+                .setSeq((int) cmdMsg.seq())
+                .setTimestamp(timestamp)
+                .setDx((float) cmdMsg.dx())
+                .setDy((float) cmdMsg.dy())
+                .setAimAngle((float) cmdMsg.aimAngle())
+                .setFire(cmdMsg.fire())
+                .build();
+
+        ClientMessage envelope = ClientMessage.newBuilder()
+                .setUserCmd(protoCmd)
+                .build();
+
+        try {
+            stream.onNext(envelope);
+            log.debug("[grpc] session {} forwarded user_cmd seq: {}", sessionId, cmdMsg.seq());
+        } catch (Exception e) {
+            log.error("[grpc] session {} failed to forward user_cmd seq {}: {}", sessionId, cmdMsg.seq(), e.getMessage());
+        }
+    }
+
+    /**
+     * Processes inbound server messages received from the Go game service over gRPC.
+     *
+     * <p>Serializes {@link com.netcode.gateway.proto.Snapshot} messages to JSON and delivers them
+     * to the associated WebSocket client as text frames with a {@code "type": "snapshot"} discriminator.</p>
+     *
+     * @param session The recipient's WebSocket session.
+     * @param msg The server message received from Go.
+     */
+    void handleServerMessage(WebSocketSession session, ServerMessage msg) {
+        String sessionId = session.getId();
+        if (msg.hasJoinResponse()) {
+            var joinResp = msg.getJoinResponse();
+            log.info("[grpc] session {} received JoinResponse: ok={}, spawn=({}, {})",
+                    sessionId, joinResp.getOk(), joinResp.getSpawnX(), joinResp.getSpawnY());
+        }
+
+        if (msg.hasSnapshot()) {
+            try {
+                String protoJson = JsonFormat.printer()
+                        .includingDefaultValueFields()
+                        .omittingInsignificantWhitespace()
+                        .print(msg.getSnapshot());
+
+                String wsPayload;
+                if ("{}".equals(protoJson)) {
+                    wsPayload = "{\"type\":\"snapshot\"}";
+                } else {
+                    wsPayload = "{\"type\":\"snapshot\"," + protoJson.substring(1);
+                }
+
+                if (session.isOpen()) {
+                    synchronized (session) {
+                        if (session.isOpen()) {
+                            session.sendMessage(new TextMessage(wsPayload));
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.error("[grpc] session {} error serializing or sending snapshot: {}", sessionId, e.getMessage(), e);
+            }
         }
     }
 
@@ -112,5 +315,21 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
     @Override
     public void handleTransportError(WebSocketSession session, Throwable exception) {
         log.error("[ws] transport error on session {}: {}", session.getId(), exception.getMessage(), exception);
+    }
+
+    /**
+     * Safely closes a WebSocket session without throwing exceptions.
+     *
+     * @param session The session to close.
+     * @param status The close status code.
+     */
+    private void closeWebSocketQuietly(WebSocketSession session, CloseStatus status) {
+        if (session != null && session.isOpen()) {
+            try {
+                session.close(status);
+            } catch (Exception e) {
+                log.debug("[ws] exception while closing session {}: {}", session.getId(), e.getMessage());
+            }
+        }
     }
 }

@@ -65,11 +65,11 @@ Deserialise incoming WebSocket text frames into typed Java records. Define `Join
 Copy `game.proto` into `src/main/proto/`. Run `mvn generate-sources` to confirm the `protobuf-maven-plugin` produces Java classes under `target/generated-sources`. No runtime usage yet.
 
 **Definition of Done**
-- [ ] `game.proto` lives at `src/main/proto/game.proto`
-- [ ] `mvn generate-sources` completes without errors
-- [ ] Generated classes (`UserCmd`, `Snapshot`, `GameServiceGrpc`, etc.) exist under `target/generated-sources`
-- [ ] Generated sources are excluded from `.gitignore` (not committed)
-- [ ] `mvn clean package` produces a runnable fat JAR
+- [x] `game.proto` lives at `src/main/proto/game.proto`
+- [x] `mvn generate-sources` completes without errors
+- [x] Generated classes (`UserCmd`, `Snapshot`, `GameServiceGrpc`, etc.) exist under `target/generated-sources`
+- [x] Generated sources are excluded from `.gitignore` (not committed)
+- [x] `mvn clean package` produces a runnable fat JAR
 
 ---
 
@@ -80,12 +80,12 @@ Copy `game.proto` into `src/main/proto/`. Run `mvn generate-sources` to confirm 
 Create `GoServiceClient.java` — a Spring `@Component` that opens a gRPC `ManagedChannel` to the Go service on startup using the `go-service.host` and `go-service.port` values from `application.yml`. Log connection state changes.
 
 **Definition of Done**
-- [ ] `GoServiceClient` is a Spring-managed singleton
-- [ ] Host and port are injected from `application.yml` (no hardcoding)
-- [ ] Channel is created with `ManagedChannelBuilder.forAddress(host, port).usePlaintext()`
-- [ ] On startup, logs `[grpc] channel created → <host>:<port>`
-- [ ] On application shutdown (`@PreDestroy`), channel is gracefully shut down
-- [ ] App starts cleanly even if the Go service is not yet running (channel is lazy)
+- [x] `GoServiceClient` is a Spring-managed singleton
+- [x] Host and port are injected from `application.yml` (no hardcoding)
+- [x] Channel is created with `ManagedChannelBuilder.forAddress(host, port).usePlaintext()`
+- [x] On startup, logs `[grpc] channel created → <host>:<port>`
+- [x] On application shutdown (`@PreDestroy`), channel is gracefully shut down
+- [x] App starts cleanly even if the Go service is not yet running (channel is lazy)
 
 ---
 
@@ -96,11 +96,11 @@ Create `GoServiceClient.java` — a Spring `@Component` that opens a gRPC `Manag
 When a `JoinMessage` arrives on WebSocket, open a bidirectional `GameService/Play` gRPC stream for that player. Store the mapping `sessionId → StreamObserver<ClientMessage>`. Send a `JoinRequest` proto message as the first message on the stream.
 
 **Definition of Done**
-- [ ] Each WebSocket session gets exactly one gRPC stream (created on join)
-- [ ] `JoinRequest` proto is sent immediately on stream open
-- [ ] `SessionManager.java` holds the `sessionId → StreamObserver` map in a `ConcurrentHashMap`
-- [ ] If the gRPC stream errors, log the error and close the corresponding WebSocket session
-- [ ] Duplicate join messages from the same session are ignored
+- [x] Each WebSocket session gets exactly one gRPC stream (created on join)
+- [x] `JoinRequest` proto is sent immediately on stream open
+- [x] `SessionManager.java` holds the `sessionId → StreamObserver` map in a `ConcurrentHashMap`
+- [x] If the gRPC stream errors, log the error and close the corresponding WebSocket session
+- [x] Duplicate join messages from the same session are ignored
 
 ---
 
@@ -111,11 +111,11 @@ When a `JoinMessage` arrives on WebSocket, open a bidirectional `GameService/Pla
 When a `UserCmdMessage` arrives on WebSocket, convert it to a `UserCmd` proto, wrap it in a `ClientMessage`, and send it on the player's gRPC stream.
 
 **Definition of Done**
-- [ ] Every received `UserCmdMessage` is forwarded to the Go service within the same thread/handler
-- [ ] Proto field mapping matches the JSON field names (`seq`, `dx`, `dy`, `aimAngle`, `fire`, `timestamp`)
-- [ ] `playerId` is injected from the session (not trusted from the client message)
-- [ ] Forwarding fails gracefully if the gRPC stream is not yet open (logs warning, drops message)
-- [ ] No message reordering: commands are forwarded in the order they arrive
+- [x] Every received `UserCmdMessage` is forwarded to the Go service within the same thread/handler
+- [x] Proto field mapping matches the JSON field names (`seq`, `dx`, `dy`, `aimAngle`, `fire`, `timestamp`)
+- [x] `playerId` is injected from the session (not trusted from the client message)
+- [x] Forwarding fails gracefully if the gRPC stream is not yet open (logs warning, drops message)
+- [x] No message reordering: commands are forwarded in the order they arrive
 
 ---
 
@@ -126,11 +126,11 @@ When a `UserCmdMessage` arrives on WebSocket, convert it to a `UserCmd` proto, w
 Implement the `onNext` handler of the gRPC `StreamObserver<ServerMessage>`. When a `Snapshot` proto arrives, serialise it to JSON and push it as a WebSocket text frame to the correct session.
 
 **Definition of Done**
-- [ ] Each `Snapshot` proto received from Go is serialised using `JsonFormat.printer()` and sent to the corresponding WebSocket session
-- [ ] Serialisation uses the proto-to-JSON mapping (field names match what the frontend expects)
-- [ ] If the WebSocket session is closed, the gRPC stream is cancelled and the session is cleaned up
-- [ ] No snapshot is sent to the wrong session
-- [ ] End-to-end test: browser console shows snapshot messages arriving at ~64 per second
+- [x] Each `Snapshot` proto received from Go is serialised using `JsonFormat.printer()` and sent to the corresponding WebSocket session
+- [x] Serialisation uses the proto-to-JSON mapping (field names match what the frontend expects)
+- [x] If the WebSocket session is closed, the gRPC stream is cancelled and the session is cleaned up
+- [x] No snapshot is sent to the wrong session
+- [x] End-to-end test: browser console shows snapshot messages arriving at ~64 per second
 
 ---
 
