@@ -21,9 +21,9 @@ export const RENDER_CONFIG = {
   /** Local player outer stroke width in pixels */
   PLAYER_OUTLINE_WIDTH: 2,
   /** Directional aim line stroke color */
-  AIM_LINE_COLOR: 'rgba(255, 255, 255, 0.6)',
+  AIM_LINE_COLOR: '#ffffff',
   /** Directional aim line length extending from player center in pixels */
-  AIM_LINE_LENGTH: 35,
+  AIM_LINE_LENGTH: 30,
 } as const;
 
 /**
