@@ -1,0 +1,36 @@
+name: Qodo PR-Agent Code Reviewer
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+  issue_comment:
+    types: [created]
+
+jobs:
+  pr_agent_job:
+    # Run only if triggered on PR or if a user comments a command (e.g. /review, /describe, /improve)
+    if: ${{ github.event.sender.type != 'Bot' }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+      contents: write
+      checks: write
+
+    steps:
+      - name: PR Agent Action
+        id: pragent
+        uses: the-pr-agent/pr-agent@main
+        env:
+          # Automatically provided by GitHub
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+          # Google Gemini Provider (configured via Google AI Studio API key)
+          GOOGLE_AI_STUDIO.GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          config.model: "gemini/gemini-2.5-pro"
+          config.fallback_models: "['gemini/gemini-2.5-flash']"
+
+          # Automatic triggers when a PR is opened/updated
+          github_action_config.auto_review: "true"
+          github_action_config.auto_describe: "true"
+          github_action_config.auto_improve: "false"
