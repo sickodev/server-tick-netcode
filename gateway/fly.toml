@@ -1,0 +1,34 @@
+# fly.toml file for Java Gateway (WebSocket Relay)
+# Refer to AGENTS.md / ops prefix for deployment details.
+
+app = "tick-gateway"
+primary_region = "bos"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  GO_SERVICE_HOST = "tick-gameserver.internal"
+  GO_SERVICE_PORT = "9090"
+
+[[services]]
+  internal_port = 8080
+  processes = ["app"]
+  protocol = "tcp"
+
+  # Public HTTP / WS port
+  [[services.ports]]
+    force_https = true
+    handlers = ["http"]
+    port = 80
+
+  # Public HTTPS / WSS (Secure WebSocket) port
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = 443
+
+  [services.concurrency]
+    hard_limit = 1000
+    soft_limit = 800
+    type = "connections"

@@ -1,0 +1,17 @@
+# fly.toml file for Go Game Service (Authoritative Simulation)
+# Refer to AGENTS.md / ops prefix for deployment details.
+
+app = "tick-gameserver"
+primary_region = "bos"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  GRPC_PORT = "9090"
+  ARENA_W = "1200"
+  ARENA_H = "800"
+
+# Note: No public HTTP/TCP services are defined here because the Gateway
+# connects to this service via Fly's internal 6pn private network at:
+# tick-gameserver.internal:9090
