@@ -68,6 +68,8 @@ type PlayerState struct {
 	Health int
 	// Speed is the movement speed in pixels per second.
 	Speed float64
+	// LastFireTick is the server tick timestamp when the player last fired their weapon.
+	LastFireTick int64
 }
 
 // BulletState represents an active projectile in flight within the arena.
