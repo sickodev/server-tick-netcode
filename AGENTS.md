@@ -138,6 +138,25 @@ The reviewer agent posts a review comment on the PR with one of:
 
 ---
 
+## 4B. Architecture Decisions — `architect` Agent
+
+### 4B.1 Role & Authority
+The `architect` agent oversees high-level system design, service boundaries, and netcode protocol invariants based on the **Yahn Bernier (2001) Latency Compensation** paper. Any RFC, PR introducing cross-cutting design changes, or contract modification must align with the architecture baseline.
+
+### 4B.2 Architecture Baseline & Boundary Rules
+- **Frontend (`fe`)**: Pure presentation, input capture (WASD + aim), client-side prediction, and entity interpolation (lerp 1–2 ticks behind). Never performs authoritative state mutations.
+- **Gateway (`gat`)**: Pure stateless relay between client WebSockets and Go gRPC streams, session authentication, and connection rate-limiting. Never stores world state or simulates physics.
+- **Game Service (`ser`)**: Authoritative simulation on a fixed 64Hz heartbeat (15.625ms ticker), 128-slot circular history buffer (~2s) for lag compensation raycasting, delta snapshot encoder.
+- **Shared Protocol (`proto`)**: Protobuf-first contract. Field numbers are immutable; backwards/forwards compatibility strictly maintained.
+
+### 4B.3 Architectural Checklist
+- [ ] **Tier Separation**: No simulation logic in Gateway; no authoritative assumptions in Frontend.
+- [ ] **Performance Budget**: Server tick computation must strictly execute within the 15.6ms 64Hz budget.
+- [ ] **Memory Bounds**: History buffers must be fixed-capacity ring buffers (e.g. 128 slots) with zero unbounded growth.
+- [ ] **Deployment Alignment**: Services remain decoupled and deployable across Vercel (FE), Koyeb (Gateway), and Fly.io (Service) via environment variables.
+
+---
+
 ## 5. The Physics Invariant — Critical Rule
 
 > [!CAUTION]
