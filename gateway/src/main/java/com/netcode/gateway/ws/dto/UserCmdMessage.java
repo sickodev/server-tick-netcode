@@ -1,6 +1,7 @@
 package com.netcode.gateway.ws.dto;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
@@ -31,6 +32,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * @param fire Whether the player is firing a bullet during this tick command frame.
  * @param timestamp Client sampling timestamp in epoch milliseconds (optional, defaults to now if absent).
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record UserCmdMessage(
         @JsonProperty(value = "type", defaultValue = "user_cmd") String type,
         @JsonProperty("seq") long seq,
