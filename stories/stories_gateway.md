@@ -145,11 +145,11 @@ Implement the `onNext` handler of the gRPC `StreamObserver<ServerMessage>`. When
 On WebSocket close or error, send a `LeaveRequest` proto on the player's gRPC stream, then cancel the stream and remove the session from `SessionManager`.
 
 **Definition of Done**
-- [ ] WebSocket close triggers `LeaveRequest` proto → Go service
-- [ ] gRPC stream is cancelled after `LeaveRequest` is sent
-- [ ] Session is removed from `SessionManager` map
-- [ ] No memory leak: repeated connect/disconnect cycles do not grow the session map
-- [ ] Go service log shows player leaving when the browser tab is closed
+- [x] WebSocket close triggers `LeaveRequest` proto → Go service
+- [x] gRPC stream is cancelled after `LeaveRequest` is sent
+- [x] Session is removed from `SessionManager` map
+- [x] No memory leak: repeated connect/disconnect cycles do not grow the session map
+- [x] Go service log shows player leaving when the browser tab is closed
 
 ---
 
@@ -160,11 +160,25 @@ On WebSocket close or error, send a `LeaveRequest` proto on the player's gRPC st
 Limit each WebSocket session to a maximum of `MAX_CMDS_PER_SECOND = 128` `usercmd` messages per second (2× the server tick rate as headroom). Drop excess messages and log a warning with the session ID.
 
 **Definition of Done**
-- [ ] Sessions sending > 128 `usercmd`/sec have excess messages silently dropped
-- [ ] A warning is logged once per second per offending session (not per dropped message)
-- [ ] Sessions within the limit are unaffected
-- [ ] Rate limiter state is per-session (one session cannot affect another)
-- [ ] Rate limiter is reset on reconnect
+- [x] Sessions sending > 128 `usercmd`/sec have excess messages silently dropped
+- [x] A warning is logged once per second per offending session (not per dropped message)
+- [x] Sessions within the limit are unaffected
+- [x] Rate limiter state is per-session (one session cannot affect another)
+- [x] Rate limiter is reset on reconnect
+
+---
+
+### STORY-G11 · Connection Metrics & Input Validation
+**Complexity:** `S`
+
+**Description**
+Implement token-bucket rate limiter per WebSocket session, input validation with normalized boundary clamping, and telemetry monitoring exposed on `/health` and `/actuator/metrics`.
+
+**Definition of Done**
+- [x] Clamps movement axes `dx`, `dy` to `[-1.0, 1.0]` and filters non-finite values (NaN / Infinity)
+- [x] Sanitizes player names by stripping HTML tags and truncating to max 24 characters
+- [x] Tracks active WebSocket sessions, total messages forwarded, dropped commands, and gRPC latency
+- [x] Exposes telemetry metrics on `GET /health` and `GET /actuator/metrics`
 
 ---
 
@@ -182,3 +196,4 @@ Limit each WebSocket session to a maximum of `MAX_CMDS_PER_SECOND = 128` `usercm
 | G08 | Receive snapshots from Go and push to WebSocket client | `M` |
 | G09 | Handle player disconnect and clean up session | `S` |
 | G10 | Add per-session rate limiting on `usercmd` messages | `S` |
+| G11 | Connection Metrics & Input Validation | `S` |

@@ -2,13 +2,16 @@ package com.netcode.gateway.ws;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.netcode.gateway.grpc.GoServiceClient;
+import com.netcode.gateway.metrics.GatewayMetrics;
 import com.netcode.gateway.proto.BulletState;
 import com.netcode.gateway.proto.ClientMessage;
 import com.netcode.gateway.proto.EntityState;
 import com.netcode.gateway.proto.JoinResponse;
 import com.netcode.gateway.proto.ServerMessage;
 import com.netcode.gateway.proto.Snapshot;
+import com.netcode.gateway.ratelimit.RateLimiter;
 import com.netcode.gateway.session.SessionManager;
+import com.netcode.gateway.validation.InputValidator;
 import io.grpc.stub.StreamObserver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -34,14 +37,17 @@ import static org.mockito.Mockito.when;
 /**
  * Comprehensive unit tests for {@link GameWebSocketHandler}.
  *
- * <p>Validates WebSocket lifecycle, join negotiation, bidirectional gRPC stream opening,
- * user_cmd forwarding with session player ID injection, snapshot JSON delivery, and error handling.</p>
+ * <p>Validates WebSocket lifecycle, join negotiation with name sanitization, rate limiting,
+ * coordinate clamping, bidirectional gRPC streaming, snapshot delivery, metrics tracking, and disconnect teardown.</p>
  */
 class GameWebSocketHandlerTest {
 
     private ObjectMapper objectMapper;
     private GoServiceClient mockGoServiceClient;
     private SessionManager sessionManager;
+    private RateLimiter rateLimiter;
+    private InputValidator inputValidator;
+    private GatewayMetrics gatewayMetrics;
     private GameWebSocketHandler handler;
     private WebSocketSession mockSession;
 
@@ -50,7 +56,18 @@ class GameWebSocketHandlerTest {
         objectMapper = new ObjectMapper();
         mockGoServiceClient = mock(GoServiceClient.class);
         sessionManager = new SessionManager();
-        handler = new GameWebSocketHandler(objectMapper, mockGoServiceClient, sessionManager);
+        rateLimiter = new RateLimiter();
+        inputValidator = new InputValidator();
+        gatewayMetrics = new GatewayMetrics();
+
+        handler = new GameWebSocketHandler(
+                objectMapper,
+                mockGoServiceClient,
+                sessionManager,
+                rateLimiter,
+                inputValidator,
+                gatewayMetrics
+        );
 
         mockSession = mock(WebSocketSession.class);
         when(mockSession.getId()).thenReturn("sess-test-123");
@@ -58,17 +75,21 @@ class GameWebSocketHandlerTest {
     }
 
     @Test
-    @DisplayName("afterConnectionEstablished should handle open session event")
+    @DisplayName("afterConnectionEstablished should increment active sessions metric")
     void handleConnectionEstablished() {
+        assertEquals(0, gatewayMetrics.getActiveSessions());
         assertDoesNotThrow(() -> handler.afterConnectionEstablished(mockSession));
+        assertEquals(1, gatewayMetrics.getActiveSessions());
     }
 
     @Test
-    @DisplayName("afterConnectionClosed should clean up session and send LeaveRequest if stream exists")
+    @DisplayName("afterConnectionClosed should clean up session, decrement active sessions, and send LeaveRequest")
     void handleConnectionClosedWithActiveStream() {
+        gatewayMetrics.incrementActiveSessions();
         @SuppressWarnings("unchecked")
         StreamObserver<ClientMessage> mockStream = mock(StreamObserver.class);
         sessionManager.registerSession("sess-test-123", "player-abc", mockStream);
+        rateLimiter.tryAcquire("sess-test-123");
 
         handler.afterConnectionClosed(mockSession, CloseStatus.NORMAL);
 
@@ -80,10 +101,12 @@ class GameWebSocketHandlerTest {
         assertTrue(sent.hasLeaveRequest());
         assertEquals("player-abc", sent.getLeaveRequest().getPlayerId());
         assertFalse(sessionManager.hasSession("sess-test-123"));
+        assertEquals(0, gatewayMetrics.getActiveSessions());
+        assertEquals(0, rateLimiter.getTrackedSessionCount());
     }
 
     @Test
-    @DisplayName("handleTextMessage with join should open gRPC stream and send JoinRequest")
+    @DisplayName("handleTextMessage with join should sanitize name, open gRPC stream, and send JoinRequest")
     void handleValidJoinMessage() {
         @SuppressWarnings("unchecked")
         StreamObserver<ClientMessage> mockStream = mock(StreamObserver.class);
@@ -92,7 +115,7 @@ class GameWebSocketHandlerTest {
         String joinJson = """
                 {
                     "type": "join",
-                    "name": "AcePilot"
+                    "name": "<b>AcePilot</b>"
                 }
                 """;
 
@@ -108,8 +131,10 @@ class GameWebSocketHandlerTest {
 
         ClientMessage sent = captor.getValue();
         assertTrue(sent.hasJoinRequest());
+        // Name should have HTML stripped
         assertEquals("AcePilot", sent.getJoinRequest().getName());
         assertEquals(playerId, sent.getJoinRequest().getPlayerId());
+        assertEquals(1, gatewayMetrics.getTotalMessagesForwarded());
     }
 
     @Test
@@ -135,7 +160,7 @@ class GameWebSocketHandlerTest {
     }
 
     @Test
-    @DisplayName("handleTextMessage with user_cmd should forward command to gRPC stream with session playerId")
+    @DisplayName("handleTextMessage with user_cmd should clamp inputs and forward to gRPC stream")
     void handleValidUserCmdMessage() {
         @SuppressWarnings("unchecked")
         StreamObserver<ClientMessage> mockStream = mock(StreamObserver.class);
@@ -146,8 +171,8 @@ class GameWebSocketHandlerTest {
                     "type": "user_cmd",
                     "seq": 105,
                     "timestamp": 1724601234567,
-                    "dx": 1.0,
-                    "dy": -1.0,
+                    "dx": 2.5,
+                    "dy": -3.0,
                     "aim_angle": 3.14159,
                     "fire": true
                 }
@@ -163,14 +188,58 @@ class GameWebSocketHandlerTest {
         assertEquals("verified-player-1", sent.getUserCmd().getPlayerId());
         assertEquals(105, sent.getUserCmd().getSeq());
         assertEquals(1724601234567L, sent.getUserCmd().getTimestamp());
+        // dx and dy clamped to [-1.0, 1.0]
         assertEquals(1.0f, sent.getUserCmd().getDx(), 0.001f);
         assertEquals(-1.0f, sent.getUserCmd().getDy(), 0.001f);
         assertEquals(3.14159f, sent.getUserCmd().getAimAngle(), 0.001f);
         assertTrue(sent.getUserCmd().getFire());
+        assertEquals(1, gatewayMetrics.getTotalMessagesForwarded());
     }
 
     @Test
-    @DisplayName("handleTextMessage with user_cmd before join should be dropped gracefully")
+    @DisplayName("handleTextMessage exceeding rate limit should drop command and increment dropped metric")
+    void handleRateLimitExceeded() {
+        // Use a restrictive rate limiter for test: 2 cmds/sec, capacity 2
+        RateLimiter tightLimiter = new RateLimiter(2.0, 2.0);
+        GameWebSocketHandler rateLimitedHandler = new GameWebSocketHandler(
+                objectMapper,
+                mockGoServiceClient,
+                sessionManager,
+                tightLimiter,
+                inputValidator,
+                gatewayMetrics
+        );
+
+        @SuppressWarnings("unchecked")
+        StreamObserver<ClientMessage> mockStream = mock(StreamObserver.class);
+        sessionManager.registerSession("sess-test-123", "p-test", mockStream);
+
+        String cmdJson = """
+                {
+                    "type": "user_cmd",
+                    "seq": 1,
+                    "dx": 0.0,
+                    "dy": 0.0,
+                    "aim_angle": 0.0,
+                    "fire": false
+                }
+                """;
+
+        // Consume all 2 tokens
+        rateLimitedHandler.handleTextMessage(mockSession, new TextMessage(cmdJson));
+        rateLimitedHandler.handleTextMessage(mockSession, new TextMessage(cmdJson));
+        assertEquals(2, gatewayMetrics.getTotalMessagesForwarded());
+        assertEquals(0, gatewayMetrics.getTotalDroppedCommands());
+
+        // 3rd command should be dropped by rate limiter
+        rateLimitedHandler.handleTextMessage(mockSession, new TextMessage(cmdJson));
+        assertEquals(2, gatewayMetrics.getTotalMessagesForwarded());
+        assertEquals(1, gatewayMetrics.getTotalDroppedCommands());
+        verify(mockStream, times(2)).onNext(any());
+    }
+
+    @Test
+    @DisplayName("handleTextMessage with user_cmd before join should be dropped gracefully and increment dropped metric")
     void handleUserCmdBeforeJoin() {
         @SuppressWarnings("unchecked")
         StreamObserver<ClientMessage> mockStream = mock(StreamObserver.class);
@@ -189,6 +258,7 @@ class GameWebSocketHandlerTest {
         handler.handleTextMessage(mockSession, new TextMessage(cmdJson));
 
         verify(mockStream, never()).onNext(any());
+        assertEquals(1, gatewayMetrics.getTotalDroppedCommands());
     }
 
     @Test
@@ -230,6 +300,7 @@ class GameWebSocketHandlerTest {
         assertTrue(payload.contains("\"ackSeq\":10"));
         assertTrue(payload.contains("\"entities\":["));
         assertTrue(payload.contains("\"bullets\":["));
+        assertEquals(1, gatewayMetrics.getTotalSnapshotsReceived());
     }
 
     @Test

@@ -5,12 +5,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.protobuf.util.JsonFormat;
 import com.netcode.gateway.grpc.GoServiceClient;
+import com.netcode.gateway.metrics.GatewayMetrics;
 import com.netcode.gateway.proto.ClientMessage;
 import com.netcode.gateway.proto.JoinRequest;
 import com.netcode.gateway.proto.LeaveRequest;
 import com.netcode.gateway.proto.ServerMessage;
 import com.netcode.gateway.proto.UserCmd;
+import com.netcode.gateway.ratelimit.RateLimiter;
 import com.netcode.gateway.session.SessionManager;
+import com.netcode.gateway.validation.InputValidator;
 import com.netcode.gateway.ws.dto.JoinMessage;
 import com.netcode.gateway.ws.dto.UserCmdMessage;
 import io.grpc.stub.StreamObserver;
@@ -26,15 +29,19 @@ import java.util.UUID;
 
 /**
  * Primary WebSocket handler responsible for client lifecycle management, incoming JSON parsing,
- * and bridging WebSocket messages to the backend Go authoritative game service via gRPC streams.
+ * rate limiting, input sanitization, operational metrics tracking, and bridging WebSocket messages
+ * to the backend Go authoritative game service via gRPC streams.
  *
  * <p>Key responsibilities:
  * <ul>
  *   <li>Establishes an isolated bidirectional gRPC stream per connected player upon join.</li>
  *   <li>Assigns server-generated player IDs stored in {@link SessionManager} (never trusting client IDs).</li>
+ *   <li>Enforces per-session Token-Bucket rate limiting via {@link RateLimiter} (max 128 cmds/sec).</li>
+ *   <li>Validates and clamps player movement and sanitizes player display names via {@link InputValidator}.</li>
  *   <li>Translates incoming WebSocket {@link UserCmdMessage} frames into Protobuf {@link UserCmd} messages.</li>
  *   <li>Converts authoritative server {@link com.netcode.gateway.proto.Snapshot} proto updates into JSON frames.</li>
- *   <li>Handles stream errors and client disconnect teardowns cleanly.</li>
+ *   <li>Collects real-time operational telemetry via {@link GatewayMetrics}.</li>
+ *   <li>Handles stream errors and client disconnect teardowns cleanly with {@link LeaveRequest} dispatch.</li>
  * </ul>
  * </p>
  */
@@ -46,37 +53,53 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
     private final ObjectMapper objectMapper;
     private final GoServiceClient goServiceClient;
     private final SessionManager sessionManager;
+    private final RateLimiter rateLimiter;
+    private final InputValidator inputValidator;
+    private final GatewayMetrics gatewayMetrics;
 
     /**
-     * Constructs the WebSocket handler with required dependencies.
+     * Constructs the WebSocket handler with required infrastructure components.
      *
      * @param objectMapper Shared JSON mapper for client message frames.
      * @param goServiceClient gRPC client bridge to the Go game service.
      * @param sessionManager Registry for active session streams and player IDs.
+     * @param rateLimiter Per-session token bucket rate limiter.
+     * @param inputValidator Input sanitizer and coordinate clamper.
+     * @param gatewayMetrics Real-time telemetry metrics collector.
      */
     public GameWebSocketHandler(
             ObjectMapper objectMapper,
             GoServiceClient goServiceClient,
-            SessionManager sessionManager
+            SessionManager sessionManager,
+            RateLimiter rateLimiter,
+            InputValidator inputValidator,
+            GatewayMetrics gatewayMetrics
     ) {
         this.objectMapper = objectMapper;
         this.goServiceClient = goServiceClient;
         this.sessionManager = sessionManager;
+        this.rateLimiter = rateLimiter;
+        this.inputValidator = inputValidator;
+        this.gatewayMetrics = gatewayMetrics;
     }
 
     /**
      * Invoked when a new WebSocket connection is established with a client.
+     * Increments active session count in metrics and logs connection event.
      *
      * @param session The newly opened WebSocket session.
      */
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
-        log.info("[ws] session {} connected", session.getId());
+        String sessionId = session.getId();
+        int activeCount = gatewayMetrics.incrementActiveSessions();
+        log.info("[ws] session {} connected (active: {})", sessionId, activeCount);
     }
 
     /**
      * Invoked when an existing WebSocket connection is closed.
-     * Cleans up the gRPC stream and removes session registration.
+     * Dispatches a {@link LeaveRequest} proto to Go, completes gRPC stream, evicts session state
+     * from {@link SessionManager}, and cleans up {@link RateLimiter} tracking.
      *
      * @param session The closed WebSocket session.
      * @param status The status reason indicating why the session closed.
@@ -84,7 +107,11 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         String sessionId = session.getId();
-        log.info("[ws] session {} disconnected ({})", sessionId, status);
+        int remainingActive = gatewayMetrics.decrementActiveSessions();
+        log.info("[ws] session {} disconnected ({}, active: {})", sessionId, status, remainingActive);
+
+        // Evict rate limiter bucket for disconnected session
+        rateLimiter.removeSession(sessionId);
 
         StreamObserver<ClientMessage> stream = sessionManager.getStream(sessionId);
         String playerId = sessionManager.getPlayerId(sessionId);
@@ -92,6 +119,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
         if (stream != null) {
             try {
                 if (playerId != null) {
+                    // Send LeaveRequest before completing stream (order matters per AGENTS.md)
                     ClientMessage leaveMsg = ClientMessage.newBuilder()
                             .setLeaveRequest(LeaveRequest.newBuilder()
                                     .setPlayerId(playerId)
@@ -139,12 +167,14 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
             String type = typeNode.asText();
             switch (type) {
                 case "join" -> {
-                    JoinMessage joinMsg = objectMapper.treeToValue(rootNode, JoinMessage.class);
-                    handleJoin(session, joinMsg);
+                    JoinMessage rawJoin = objectMapper.treeToValue(rootNode, JoinMessage.class);
+                    JoinMessage sanitizedJoin = inputValidator.validateAndSanitize(rawJoin);
+                    handleJoin(session, sanitizedJoin);
                 }
                 case "user_cmd" -> {
-                    UserCmdMessage cmdMsg = objectMapper.treeToValue(rootNode, UserCmdMessage.class);
-                    handleUserCmd(session, cmdMsg);
+                    UserCmdMessage rawCmd = objectMapper.treeToValue(rootNode, UserCmdMessage.class);
+                    UserCmdMessage sanitizedCmd = inputValidator.validateAndSanitize(rawCmd);
+                    handleUserCmd(session, sanitizedCmd);
                 }
                 default -> log.warn("[ws] session {} received unknown message type '{}': {}", sessionId, type, payload);
             }
@@ -162,7 +192,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
      * Go game service, stores the stream in {@link SessionManager}, and sends an initial {@link JoinRequest}.</p>
      *
      * @param session The client's WebSocket session.
-     * @param joinMsg The parsed join message DTO.
+     * @param joinMsg The parsed and sanitized join message DTO.
      */
     private void handleJoin(WebSocketSession session, JoinMessage joinMsg) {
         String sessionId = session.getId();
@@ -185,6 +215,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
             @Override
             public void onError(Throwable t) {
                 log.error("[grpc] session {} stream error: {}", sessionId, t.getMessage());
+                rateLimiter.removeSession(sessionId);
                 sessionManager.removeSession(sessionId);
                 closeWebSocketQuietly(session, CloseStatus.SERVER_ERROR);
             }
@@ -192,6 +223,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
             @Override
             public void onCompleted() {
                 log.info("[grpc] session {} stream completed by server", sessionId);
+                rateLimiter.removeSession(sessionId);
                 sessionManager.removeSession(sessionId);
                 closeWebSocketQuietly(session, CloseStatus.NORMAL);
             }
@@ -209,9 +241,11 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                     .build();
 
             requestObserver.onNext(joinRequestEnvelope);
+            gatewayMetrics.recordMessageForwarded();
             log.info("[grpc] session {} sent JoinRequest for playerId {}", sessionId, playerId);
         } catch (Exception e) {
             log.error("[grpc] failed to open gRPC play stream for session {}: {}", sessionId, e.getMessage(), e);
+            rateLimiter.removeSession(sessionId);
             sessionManager.removeSession(sessionId);
             closeWebSocketQuietly(session, CloseStatus.SERVER_ERROR);
         }
@@ -220,22 +254,36 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
     /**
      * Handles a user input command frame from a WebSocket client.
      *
-     * <p>Converts the command into a {@link UserCmd} Protobuf message using the authenticated
-     * player ID from {@link SessionManager}, and forwards it onto the active gRPC stream.</p>
+     * <p>Enforces per-session rate limits, verifies active gRPC stream association, converts the
+     * command into a {@link UserCmd} Protobuf message using the authenticated player ID, and forwards
+     * it onto the active gRPC stream.</p>
      *
      * @param session The client's WebSocket session.
-     * @param cmdMsg The parsed user command message DTO.
+     * @param cmdMsg The parsed and sanitized user command message DTO.
      */
     private void handleUserCmd(WebSocketSession session, UserCmdMessage cmdMsg) {
         String sessionId = session.getId();
+
+        // 1. Check per-session Token-Bucket rate limit (max 128 cmds/sec)
+        if (!rateLimiter.tryAcquire(sessionId)) {
+            gatewayMetrics.recordDroppedCommand();
+            if (rateLimiter.shouldWarn(sessionId)) {
+                log.warn("[rate-limit] session {} exceeding 128 usercmd/sec — dropping", sessionId);
+            }
+            return;
+        }
+
+        // 2. Validate session stream presence
         StreamObserver<ClientMessage> stream = sessionManager.getStream(sessionId);
         String playerId = sessionManager.getPlayerId(sessionId);
 
         if (stream == null || playerId == null) {
+            gatewayMetrics.recordDroppedCommand();
             log.warn("[ws] session {} dropped user_cmd: stream not yet initialized", sessionId);
             return;
         }
 
+        // 3. Assemble Protobuf UserCmd payload with server-authenticated player ID
         long timestamp = (cmdMsg.timestamp() != null && cmdMsg.timestamp() > 0)
                 ? cmdMsg.timestamp()
                 : System.currentTimeMillis();
@@ -254,10 +302,16 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 .setUserCmd(protoCmd)
                 .build();
 
+        // 4. Forward message to gRPC stream and measure forwarding latency
+        long sendStartNanos = System.nanoTime();
         try {
             stream.onNext(envelope);
+            gatewayMetrics.recordMessageForwarded();
+            double latencyMs = (System.nanoTime() - sendStartNanos) / 1_000_000.0;
+            gatewayMetrics.recordGrpcLatency(latencyMs);
             log.debug("[grpc] session {} forwarded user_cmd seq: {}", sessionId, cmdMsg.seq());
         } catch (Exception e) {
+            gatewayMetrics.recordDroppedCommand();
             log.error("[grpc] session {} failed to forward user_cmd seq {}: {}", sessionId, cmdMsg.seq(), e.getMessage());
         }
     }
@@ -294,6 +348,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
         }
 
         if (msg.hasSnapshot()) {
+            gatewayMetrics.recordSnapshotReceived();
             try {
                 String protoJson = JsonFormat.printer()
                         .includingDefaultValueFields()
