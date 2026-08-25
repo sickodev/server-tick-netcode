@@ -6,7 +6,7 @@ services:
   # Go Game Service (Authoritative Simulation)
   # ──────────────────────────────────────────
   - type: web
-    name: tick-gameserver
+    name: tick-gameserver-kalyan
     env: docker
     dockerfilePath: service/Dockerfile
     dockerContext: service
@@ -24,7 +24,7 @@ services:
   # Java Gateway (WebSocket Relay)
   # ──────────────────────────────────────────
   - type: web
-    name: tick-gateway
+    name: tick-gateway-kalyan
     env: docker
     dockerfilePath: gateway/Dockerfile
     dockerContext: gateway
@@ -36,7 +36,7 @@ services:
       # Automatically resolve the Go service host
       - key: GO_SERVICE_HOST
         fromService:
-          name: tick-gameserver
+          name: tick-gameserver-kalyan
           type: web
           property: host
       # Automatically resolve the Go service port
