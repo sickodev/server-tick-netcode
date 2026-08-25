@@ -78,11 +78,11 @@ Track the mouse position in `InputHandler.ts`. In `Renderer.ts`, draw a short li
 Implement `NetworkClient.ts` to open a WebSocket connection to a configurable URL (read from `import.meta.env.VITE_GATEWAY_URL`). Log connect / disconnect / error events to the console. No messages sent or received yet.
 
 **Definition of Done**
-- [ ] `NetworkClient` connects on instantiation
-- [ ] Console logs: `[ws] connected`, `[ws] disconnected`, `[ws] error: …`
-- [ ] Gateway URL is read from `.env.local` (`VITE_GATEWAY_URL=ws://localhost:8080/ws`)
-- [ ] `.env.local` is listed in `.gitignore`
-- [ ] Connection survives a gateway restart (auto-reconnect with 2s delay)
+- [x] `NetworkClient` connects on instantiation
+- [x] Console logs: `[ws] connected`, `[ws] disconnected`, `[ws] error: …`
+- [x] Gateway URL is read from `.env.local` (`VITE_GATEWAY_URL=ws://localhost:8080/ws`)
+- [x] `.env.local` is listed in `.gitignore`
+- [x] Connection survives a gateway restart (auto-reconnect with 2s delay)
 
 ---
 
@@ -93,10 +93,10 @@ Implement `NetworkClient.ts` to open a WebSocket connection to a configurable UR
 On WebSocket open, send a `{ type: "join", playerId: "<uuid>", name: "Player" }` JSON message. Generate the `playerId` with `crypto.randomUUID()` and store it for the session lifetime.
 
 **Definition of Done**
-- [ ] A `join` JSON message is sent immediately after the connection opens
-- [ ] `playerId` is a valid UUID, consistent for the lifetime of the tab
-- [ ] The sent payload is logged to console for debugging
-- [ ] No crash if the gateway is not yet running (error is caught and logged)
+- [x] A `join` JSON message is sent immediately after the connection opens
+- [x] `playerId` is a valid UUID, consistent for the lifetime of the tab
+- [x] The sent payload is logged to console for debugging
+- [x] No crash if the gateway is not yet running (error is caught and logged)
 
 ---
 
@@ -107,11 +107,11 @@ On WebSocket open, send a `{ type: "join", playerId: "<uuid>", name: "Player" }`
 Each frame, package the current `InputHandler` state into a `UserCmd` JSON object and send it via `NetworkClient`. Increment a monotonic `seq` counter per command.
 
 **Definition of Done**
-- [ ] Every frame sends `{ type: "usercmd", seq, timestamp, dx, dy, aimAngle, fire }` over WebSocket
-- [ ] `seq` starts at 1 and increments by 1 every frame
-- [ ] `timestamp` is `Date.now()`
-- [ ] Messages are only sent when the socket is in `OPEN` state
-- [ ] Network tab in DevTools shows a stream of small WebSocket frames
+- [x] Every frame sends `{ type: "usercmd", seq, timestamp, dx, dy, aimAngle, fire }` over WebSocket
+- [x] `seq` starts at 1 and increments by 1 every frame
+- [x] `timestamp` is `Date.now()`
+- [x] Messages are only sent when the socket is in `OPEN` state
+- [x] Network tab in DevTools shows a stream of small WebSocket frames
 
 ---
 
@@ -122,11 +122,11 @@ Each frame, package the current `InputHandler` state into a `UserCmd` JSON objec
 Parse incoming `{ type: "snapshot", ... }` messages in `NetworkClient`. Extract entity positions and pass them to `Renderer`. For now, **skip prediction** — just snap the local player directly to the server-authoritative position.
 
 **Definition of Done**
-- [ ] Snapshot messages are parsed without error
-- [ ] Local player position updates to match server position on each received snapshot
-- [ ] Remote players (other `entities` in the snapshot) are drawn as grey circles
-- [ ] Bullets in the snapshot are drawn as small white dots
-- [ ] Console logs the `serverTick` and `ackSeq` of each received snapshot
+- [x] Snapshot messages are parsed without error
+- [x] Local player position updates to match server position on each received snapshot
+- [x] Remote players (other `entities` in the snapshot) are drawn as grey circles
+- [x] Bullets in the snapshot are drawn as small white dots
+- [x] Console logs the `serverTick` and `ackSeq` of each received snapshot
 
 ---
 
