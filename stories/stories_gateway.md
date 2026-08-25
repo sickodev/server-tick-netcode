@@ -17,10 +17,10 @@ Stories are ordered strictly by dependency. Each one should be completable and c
 Verify the Spring Boot app bootstraps cleanly. Add a single `GET /health` endpoint returning `{ "status": "ok" }`. This is the baseline that every subsequent story depends on.
 
 **Definition of Done**
-- [ ] `mvn spring-boot:run` starts without errors
-- [ ] `GET http://localhost:8080/health` returns `200 { "status": "ok" }`
-- [ ] No unused auto-configurations causing startup warnings
-- [ ] Application banner updated to show service name (`gateway`)
+- [x] `mvn spring-boot:run` starts without errors
+- [x] `GET http://localhost:8080/health` returns `200 { "status": "ok" }`
+- [x] No unused auto-configurations causing startup warnings
+- [x] Application banner updated to show service name (`gateway`)
 
 ---
 
@@ -31,11 +31,11 @@ Verify the Spring Boot app bootstraps cleanly. Add a single `GET /health` endpoi
 Register a Spring WebSocket handler at the path `/ws`. Log each connect and disconnect event with the session ID. No messages processed yet.
 
 **Definition of Done**
-- [ ] A browser `new WebSocket("ws://localhost:8080/ws")` connects successfully
-- [ ] Server logs `[ws] session <id> connected` on open
-- [ ] Server logs `[ws] session <id> disconnected` on close
-- [ ] Multiple simultaneous connections are accepted without error
-- [ ] CORS is configured to allow connections from `http://localhost:5173` (Vite dev server)
+- [x] A browser `new WebSocket("ws://localhost:8080/ws")` connects successfully
+- [x] Server logs `[ws] session <id> connected` on open
+- [x] Server logs `[ws] session <id> disconnected` on close
+- [x] Multiple simultaneous connections are accepted without error
+- [x] CORS is configured to allow connections from `http://localhost:5173` (Vite dev server)
 
 ---
 
@@ -46,11 +46,11 @@ Register a Spring WebSocket handler at the path `/ws`. Log each connect and disc
 Deserialise incoming WebSocket text frames into typed Java records. Define `JoinMessage` and `UserCmdMessage` records matching the frontend JSON contract. Log the parsed type and `seq` to console.
 
 **Definition of Done**
-- [ ] `{ "type": "join", "playerId": "...", "name": "..." }` deserialises to `JoinMessage`
-- [ ] `{ "type": "usercmd", "seq": 1, ... }` deserialises to `UserCmdMessage`
-- [ ] Unknown message types are logged as a warning and silently dropped (no crash)
-- [ ] Malformed JSON is caught, logged as error, and the session remains open
-- [ ] Jackson `ObjectMapper` is configured as a Spring bean (not instantiated ad hoc)
+- [x] `{ "type": "join", "playerId": "...", "name": "..." }` deserialises to `JoinMessage`
+- [x] `{ "type": "usercmd", "seq": 1, ... }` deserialises to `UserCmdMessage`
+- [x] Unknown message types are logged as a warning and silently dropped (no crash)
+- [x] Malformed JSON is caught, logged as error, and the session remains open
+- [x] Jackson `ObjectMapper` is configured as a Spring bean (not instantiated ad hoc)
 
 ---
 
