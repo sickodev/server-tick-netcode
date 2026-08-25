@@ -1,4 +1,7 @@
 import { ARENA_W, ARENA_H } from './constants';
+import { UserCmd } from './types';
+
+export type { UserCmd };
 
 /**
  * Encapsulates the normalized 2D movement vector derived from active input controls.
@@ -8,24 +11,6 @@ export interface MovementVector {
   dx: number;
   /** Normalized vertical movement component (-1.0 to 1.0) */
   dy: number;
-}
-
-/**
- * Authoritative user command payload captured for a single frame or simulation tick.
- */
-export interface UserCmd {
-  /** Monotonically increasing sequence number for this command */
-  seq: number;
-  /** Client-side timestamp in milliseconds when input was captured */
-  timestamp: number;
-  /** Normalized horizontal movement delta (-1 to 1) */
-  dx: number;
-  /** Normalized vertical movement delta (-1 to 1) */
-  dy: number;
-  /** Aim direction angle in radians (facing direction toward mouse cursor) */
-  aimAngle: number;
-  /** Whether the primary fire action was triggered in this frame */
-  fire: boolean;
 }
 
 /**
