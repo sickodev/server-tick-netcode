@@ -17,10 +17,10 @@ Stories are ordered strictly by dependency. Each one should be completable and c
 Replace the Vite default `App.tsx` content with a full-screen `<canvas>` element. No game logic yet — just the canvas on screen with a black background.
 
 **Definition of Done**
-- [ ] `GameCanvas.tsx` renders a `<canvas>` that fills the viewport
-- [ ] Background is solid black
-- [ ] No Vite boilerplate (default counter, logos) remains in the app
-- [ ] `npm run dev` shows only the black canvas, no console errors
+- [x] `GameCanvas.tsx` renders a `<canvas>` that fills the viewport
+- [x] Background is solid black
+- [x] No Vite boilerplate (default counter, logos) remains in the app
+- [x] `npm run dev` shows only the black canvas, no console errors
 
 ---
 
@@ -31,10 +31,10 @@ Replace the Vite default `App.tsx` content with a full-screen `<canvas>` element
 Inside `Renderer.ts`, implement a `draw()` method that paints a filled white circle at a hardcoded centre position. Call it from a basic `requestAnimationFrame` loop bootstrapped by `GameCanvas.tsx`.
 
 **Definition of Done**
-- [ ] A white circle (~20px radius) is visible at the canvas centre
-- [ ] The frame loop runs via `requestAnimationFrame` (not `setInterval`)
-- [ ] `Renderer.ts` owns all canvas draw calls — nothing draws directly in the component
-- [ ] Circle redraws cleanly each frame (canvas cleared before draw)
+- [x] A white circle (~20px radius) is visible at the canvas centre
+- [x] The frame loop runs via `requestAnimationFrame` (not `setInterval`)
+- [x] `Renderer.ts` owns all canvas draw calls — nothing draws directly in the component
+- [x] Circle redraws cleanly each frame (canvas cleared before draw)
 
 ---
 
@@ -45,11 +45,11 @@ Inside `Renderer.ts`, implement a `draw()` method that paints a filled white cir
 Wire up `InputHandler.ts` to track which keys are held. Each frame, translate that into a `dx/dy` delta and move the player circle. No network, no server — pure local movement.
 
 **Definition of Done**
-- [ ] `W A S D` keys move the circle up / left / down / right
-- [ ] Movement speed is a named constant (e.g. `PLAYER_SPEED = 200` px/sec)
-- [ ] Speed is frame-rate-independent (multiplied by `deltaTime` in seconds)
-- [ ] Player cannot move outside the canvas boundary
-- [ ] No keys held → circle stays still
+- [x] `W A S D` keys move the circle up / left / down / right
+- [x] Movement speed is a named constant (e.g. `PLAYER_SPEED = 200` px/sec)
+- [x] Speed is frame-rate-independent (multiplied by `deltaTime` in seconds)
+- [x] Player cannot move outside the canvas boundary
+- [x] No keys held → circle stays still
 
 ---
 
@@ -60,10 +60,10 @@ Wire up `InputHandler.ts` to track which keys are held. Each frame, translate th
 Track the mouse position in `InputHandler.ts`. In `Renderer.ts`, draw a short line from the player circle outward toward the mouse, indicating aim direction.
 
 **Definition of Done**
-- [ ] A line (~30px) extends from the player circle toward the current mouse position
-- [ ] Line updates smoothly as mouse moves
-- [ ] `aimAngle` (radians) is derivable from player position + mouse position
-- [ ] Works correctly when the player has moved from centre (STORY-F03)
+- [x] A line (~30px) extends from the player circle toward the current mouse position
+- [x] Line updates smoothly as mouse moves
+- [x] `aimAngle` (radians) is derivable from player position + mouse position
+- [x] Works correctly when the player has moved from centre (STORY-F03)
 
 ---
 
