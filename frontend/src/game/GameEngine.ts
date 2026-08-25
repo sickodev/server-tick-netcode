@@ -131,8 +131,9 @@ export class GameEngine {
     }
 
     // Filter remote player entities (all active players except self)
+    const selfId = selfEntity?.id ?? myId;
     this.remoteEntities = snapshot.entities.filter(
-      (entity) => entity !== selfEntity && entity.id !== myId
+      (entity) => entity !== selfEntity && entity.id !== selfId && entity.isSelf !== true && entity.is_self !== true
     );
 
     // Update active projectiles
