@@ -54,10 +54,17 @@ public class GoServiceClient {
     @PostConstruct
     public void init() {
         log.info("[grpc] initializing gRPC connection to {}:{}", host, port);
-        this.channel = ManagedChannelBuilder
-                .forAddress(host, port)
-                .usePlaintext()
-                .build();
+        io.grpc.ManagedChannelBuilder<?> channelBuilder = ManagedChannelBuilder.forAddress(host, port);
+        
+        if (host.contains("onrender.com")) {
+            log.info("[grpc] enabling TLS transport security for public host: {}", host);
+            channelBuilder.useTransportSecurity();
+        } else {
+            log.info("[grpc] using plaintext connection for local/internal host: {}", host);
+            channelBuilder.usePlaintext();
+        }
+        
+        this.channel = channelBuilder.build();
         this.stub = GameServiceGrpc.newStub(channel);
         log.info("[grpc] channel created -> {}:{}", host, port);
     }
