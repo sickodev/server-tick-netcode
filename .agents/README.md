@@ -1,5 +1,9 @@
 # Agent Roster — server-tick-netcode
 
+> [!IMPORTANT]
+> **All agents must read [AGENTS.md](../AGENTS.md) before starting any work.**
+> It defines commit format, branch strategy, the code review gate, the physics invariant, and all team rules.
+
 This folder contains all project agents. Each agent owns a specific slice of the codebase and story set. Agents are designed to work independently on their stories and hand off clearly defined outputs to dependent agents.
 
 ## Agent Map
@@ -8,6 +12,7 @@ This folder contains all project agents. Each agent owns a specific slice of the
 .agents/
 │
 ├── README.md                        ← this file
+├── code-reviewer.md                 ← 🔍 Pre-push review gate (all agents)
 │
 ├── proto-contract.md                ← 🔵 Shared contract owner (start here)
 │
