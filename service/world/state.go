@@ -105,6 +105,8 @@ type WorldState struct {
 	LastAckSeq map[string]uint32
 	// SnapChs holds the snapshot output channels for each connected player session.
 	SnapChs map[string]chan *pb.ServerMessage
+	// History retains the circular history ring buffer of past player states for lag compensation.
+	History *HistoryBuffer
 }
 
 // NewWorldState creates and initializes a fresh WorldState instance with empty entity collections.
@@ -115,7 +117,16 @@ func NewWorldState() *WorldState {
 		Queues:     make(map[string]*PlayerQueue),
 		LastAckSeq: make(map[string]uint32),
 		SnapChs:    make(map[string]chan *pb.ServerMessage),
+		History:    NewHistoryBuffer(),
 	}
+}
+
+// RecordHistory captures a deep-copied snapshot of current player positions into the lag compensation history buffer.
+// This method is thread-safe and acquires a read lock on the world state.
+func (w *WorldState) RecordHistory() {
+	w.Mu.RLock()
+	defer w.Mu.RUnlock()
+	w.History.Record(w.Tick, w.Players)
 }
 
 // AddPlayer spawns a new player with InitialHealth in the inner 80% area of the arena.
