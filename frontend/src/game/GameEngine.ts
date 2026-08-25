@@ -1,16 +1,21 @@
-import { ARENA_W, ARENA_H, PLAYER_RADIUS, PLAYER_SPEED } from './constants';
 import { InputHandler } from './InputHandler';
+import { InterpolationBuffer } from './InterpolationBuffer';
 import { NetworkClient } from './NetworkClient';
+import { PredictionEngine } from './PredictionEngine';
 import { Renderer } from './Renderer';
-import { BulletState, EntityState, Snapshot, UserCmd } from './types';
+import { BulletState, Snapshot, UserCmd } from './types';
 
 /**
- * Core client-side game engine managing the rendering, input sampling, and simulation heartbeat.
+ * Core client-side game engine orchestrating the input capture, prediction,
+ * network replication, entity interpolation, and 2D canvas rendering loop.
  *
- * Bootstraps and drives the browser's `requestAnimationFrame` loop, orchestrates
- * delta-time tracking across frames, captures player input via InputHandler, dispatches
- * high-frequency UserCmd packets over WebSocket via NetworkClient, applies authoritative
- * snapshot updates from the server, and invokes subsystem renders.
+ * Sequence on each frame (Bernier 2001 latency compensation architecture):
+ * 1. Capture user inputs (WASD movement, aim angle, firing) via InputHandler.
+ * 2. Immediately simulate local player kinematics via PredictionEngine (Story F09).
+ * 3. Transmit UserCmd packet containing sequence number and inputs via NetworkClient.
+ * 4. Retrieve smoothly interpolated positions for all remote players via InterpolationBuffer (Story F11).
+ * 5. Reconcile local player prediction against authoritative server state when snapshots arrive (Story F10).
+ * 6. Extrapolate active projectile trajectories and render complete scene via Renderer (Story F12).
  */
 export class GameEngine {
   private canvas: HTMLCanvasElement;
@@ -18,6 +23,8 @@ export class GameEngine {
   private renderer: Renderer;
   private inputHandler: InputHandler;
   private networkClient: NetworkClient;
+  private predictionEngine: PredictionEngine;
+  private interpBuffer: InterpolationBuffer;
 
   /** Identifier of the active requestAnimationFrame callback, or null if stopped */
   private animationFrameId: number | null = null;
@@ -31,27 +38,18 @@ export class GameEngine {
   /** Monotonically increasing sequence counter for outbound UserCmd packets */
   private seq: number = 1;
 
-  /** Local player horizontal coordinate in pixels */
-  private playerX: number = ARENA_W / 2;
-
-  /** Local player vertical coordinate in pixels */
-  private playerY: number = ARENA_H / 2;
-
-  /** Local player aim direction in radians (facing mouse cursor) */
-  private aimAngle: number = 0;
-
-  /** Array of active remote player entities received from latest server snapshot */
-  private remoteEntities: EntityState[] = [];
-
   /** Array of active projectile bullets received from latest server snapshot */
   private bullets: BulletState[] = [];
+
+  /** Local client epoch timestamp in milliseconds when the latest snapshot was received */
+  private lastSnapshotTime: number = Date.now();
 
   /** Unsubscribe callback handle for snapshot listener */
   private unsubscribeSnapshot: (() => void) | null = null;
 
   /**
-   * Constructs the GameEngine and initializes the 2D rendering pipeline, input handler,
-   * and network client.
+   * Constructs the GameEngine and initializes the rendering context, input handler,
+   * prediction engine, interpolation buffer, and network client.
    *
    * @param canvas        - The HTML5 canvas DOM element on which the game is drawn.
    * @param networkClient - Optional NetworkClient instance override.
@@ -67,6 +65,8 @@ export class GameEngine {
     this.renderer = new Renderer(this.ctx);
     this.inputHandler = new InputHandler(this.canvas);
     this.networkClient = networkClient || new NetworkClient();
+    this.predictionEngine = new PredictionEngine();
+    this.interpBuffer = new InterpolationBuffer();
   }
 
   /**
@@ -111,32 +111,32 @@ export class GameEngine {
 
   /**
    * Handles authoritative world snapshot received from the server.
-   * Updates local player position directly (F08 snapshot snapping) and stores remote entities and bullets.
+   * Feeds snapshot into the remote entity interpolation buffer and triggers
+   * local player server reconciliation against the acknowledged command sequence.
    *
    * @param snapshot - The authoritative world snapshot from server tick.
    */
   private handleSnapshot(snapshot: Snapshot): void {
+    const receiveTime = Date.now();
+    this.lastSnapshotTime = receiveTime;
+
+    // Ingest snapshot into InterpolationBuffer for remote player smoothing
+    this.interpBuffer.addSnapshot(snapshot, receiveTime);
+
     const myId = this.networkClient.getPlayerId();
 
-    // Identify self entity from snapshot payload
+    // Locate local player state in snapshot payload
     const selfEntity = snapshot.entities.find(
       (entity) => entity.isSelf === true || entity.is_self === true || entity.id === myId
     );
 
+    // Reconcile prediction with server authoritative position
     if (selfEntity) {
-      // In F08 (pre-prediction), snap local player directly to authoritative server state
-      this.playerX = selfEntity.x;
-      this.playerY = selfEntity.y;
-      this.aimAngle = selfEntity.angle;
+      const ackSeq = snapshot.ackSeq ?? snapshot.ack_seq ?? 0;
+      this.predictionEngine.reconcile(selfEntity, ackSeq);
     }
 
-    // Filter remote player entities (all active players except self)
-    const selfId = selfEntity?.id ?? myId;
-    this.remoteEntities = snapshot.entities.filter(
-      (entity) => entity !== selfEntity && entity.id !== selfId && entity.isSelf !== true && entity.is_self !== true
-    );
-
-    // Update active projectiles
+    // Cache active projectile bullets
     this.bullets = snapshot.bullets || [];
   }
 
@@ -168,53 +168,94 @@ export class GameEngine {
 
   /**
    * Updates local game state for the current frame step.
-   * Reads input, advances player translation, calculates aim angle, and transmits UserCmd.
+   * Reads input, performs client-side prediction, triggers visual effects, and transmits UserCmd.
    *
    * @param dt - Elapsed delta time in seconds since the last frame.
    */
   private update(dt: number): void {
-    // 1. Read directional movement vector from user input
+    // 1. Query predicted position to calculate mouse aim angle
+    const currentPredictedPos = this.predictionEngine.getPosition();
+
+    // 2. Read directional movement vector and aim angle from user input
     const { dx, dy } = this.inputHandler.getMovementVector();
+    const aimAngle = this.inputHandler.getAimAngle(currentPredictedPos.x, currentPredictedPos.y);
 
-    // 2. Apply frame-rate independent position translation
-    this.playerX += dx * PLAYER_SPEED * dt;
-    this.playerY += dy * PLAYER_SPEED * dt;
-
-    // 3. Clamp player position to arena boundaries with PLAYER_RADIUS inset
-    this.playerX = Math.max(PLAYER_RADIUS, Math.min(ARENA_W - PLAYER_RADIUS, this.playerX));
-    this.playerY = Math.max(PLAYER_RADIUS, Math.min(ARENA_H - PLAYER_RADIUS, this.playerY));
-
-    // 4. Update aim angle pointing from current player position to mouse cursor
-    this.aimAngle = this.inputHandler.getAimAngle(this.playerX, this.playerY);
-
-    // 5. Read fire trigger state
+    // 3. Read fire trigger state
     const fire = this.inputHandler.isFiring();
 
-    // 6. Build and dispatch frame UserCmd packet
+    // 4. Build frame UserCmd packet
     const userCmd: UserCmd = {
       seq: this.seq++,
       timestamp: Date.now(),
       dx,
       dy,
-      aimAngle: this.aimAngle,
+      aimAngle,
       fire,
     };
 
+    // 5. Client-Side Prediction (Story F09): Simulate local movement immediately
+    const predictedPos = this.predictionEngine.predict(userCmd, dt);
+
+    // 6. Story F12: Instant visual feedback on weapon fire (no waiting for server)
+    if (fire) {
+      this.renderer.addMuzzleFlash(predictedPos.x, predictedPos.y, aimAngle);
+    }
+
+    // 7. Transmit command packet to authoritative server
     this.networkClient.sendUserCmd(userCmd);
   }
 
   /**
-   * Renders the current frame by passing active entity positions, remote entities,
-   * and projectiles to the Renderer.
+   * Renders the current frame by drawing predicted local player, interpolated
+   * remote players, extrapolated projectiles, and particle visual effects.
    */
   private render(): void {
-    this.renderer.render(
-      this.playerX,
-      this.playerY,
-      this.aimAngle,
-      this.remoteEntities,
-      this.bullets
+    // 1. Retrieve local player predicted coordinates and aim angle
+    const localPos = this.predictionEngine.getPosition();
+    const localAngle = this.predictionEngine.getAngle();
+
+    // 2. Story F11: Retrieve smoothly interpolated remote player entities
+    const interpolatedEntities = this.interpBuffer.getInterpolatedEntities();
+    const myId = this.networkClient.getPlayerId();
+
+    // Filter out local player entity from remote entity rendering
+    const remoteEntities = interpolatedEntities.filter(
+      (entity) => entity.id !== myId && entity.isSelf !== true && entity.is_self !== true
     );
+
+    // 3. Story F12: Calculate projectile extrapolation time offset in seconds
+    const elapsedSec = (Date.now() - this.lastSnapshotTime) / 1000;
+    const extrapolationSeconds = Math.max(0, Math.min(elapsedSec, 0.25));
+
+    // 4. Paint scene
+    this.renderer.render(
+      localPos.x,
+      localPos.y,
+      localAngle,
+      remoteEntities,
+      this.bullets,
+      extrapolationSeconds
+    );
+  }
+
+  /**
+   * Retrieves the active PredictionEngine instance.
+   * Consumed by debug HUD overlay to inspect prediction error and unACKed queue size.
+   *
+   * @returns The PredictionEngine instance.
+   */
+  public getPredictionEngine(): PredictionEngine {
+    return this.predictionEngine;
+  }
+
+  /**
+   * Retrieves the active InterpolationBuffer instance.
+   * Consumed by debug HUD overlay to inspect snapshot count and interp delay.
+   *
+   * @returns The InterpolationBuffer instance.
+   */
+  public getInterpolationBuffer(): InterpolationBuffer {
+    return this.interpBuffer;
   }
 
   /**
@@ -245,12 +286,12 @@ export class GameEngine {
   }
 
   /**
-   * Retrieves the current local player position coordinates.
+   * Retrieves the current local predicted player position coordinates.
    *
    * @returns Object containing x and y coordinates in pixels.
    */
   public getPlayerPosition(): { x: number; y: number } {
-    return { x: this.playerX, y: this.playerY };
+    return this.predictionEngine.getPosition();
   }
 
   /**
@@ -259,6 +300,6 @@ export class GameEngine {
    * @returns Aim angle in radians.
    */
   public getAimAngle(): number {
-    return this.aimAngle;
+    return this.predictionEngine.getAngle();
   }
 }
