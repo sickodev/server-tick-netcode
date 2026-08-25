@@ -87,6 +87,8 @@ type HistoryBuffer struct {
 	mu sync.RWMutex
 	// slots is the fixed-size array holding historical frames.
 	slots [HistoryBufferSize]HistoricalFrame
+	// earliestTick is the oldest valid tick currently available in the buffer.
+	earliestTick int64
 	// latestTick is the most recent tick recorded in the buffer.
 	latestTick int64
 	// count is the total number of frames recorded since initialization.
@@ -96,8 +98,9 @@ type HistoryBuffer struct {
 // NewHistoryBuffer constructs an empty, preallocated HistoryBuffer with HistoryBufferSize slots.
 func NewHistoryBuffer() *HistoryBuffer {
 	return &HistoryBuffer{
-		latestTick: 0,
-		count:      0,
+		earliestTick: 0,
+		latestTick:   0,
+		count:        0,
 	}
 }
 
@@ -127,9 +130,27 @@ func (h *HistoryBuffer) Record(tick int64, players map[string]*PlayerState) {
 		Players: copiedPlayers,
 	}
 
-	if tick > h.latestTick || h.count == 0 {
+	if h.count == 0 {
+		h.earliestTick = tick
 		h.latestTick = tick
+	} else {
+		if tick < h.earliestTick {
+			h.earliestTick = tick
+		}
+		if tick > h.latestTick {
+			h.latestTick = tick
+		}
+		// Bound earliest tick to the 128-slot retention window
+		earliestWindow := h.latestTick - int64(HistoryBufferSize) + 1
+		if earliestWindow > h.earliestTick {
+			h.earliestTick = earliestWindow
+		}
 	}
+
+	if h.earliestTick < 1 {
+		h.earliestTick = 1
+	}
+
 	h.count++
 }
 
@@ -145,24 +166,8 @@ func (h *HistoryBuffer) StateAt(tick int64) *HistoricalFrame {
 		return nil
 	}
 
-	// If requested tick is beyond the latest recorded tick, return nil
-	if tick > h.latestTick {
-		return nil
-	}
-
-	// Calculate the oldest valid tick currently preserved in the ring buffer
-	var earliestTick int64
-	if h.count >= int64(HistoryBufferSize) {
-		earliestTick = h.latestTick - int64(HistoryBufferSize) + 1
-	} else {
-		earliestTick = h.latestTick - h.count + 1
-	}
-	if earliestTick < 1 {
-		earliestTick = 1
-	}
-
-	// If requested tick is older than our retention window, it has been overwritten or not recorded
-	if tick < earliestTick {
+	// If requested tick is outside our valid retention window, return nil
+	if tick > h.latestTick || tick < h.earliestTick {
 		return nil
 	}
 
@@ -201,19 +206,9 @@ func (h *HistoryBuffer) ClosestStateAt(tick int64) *HistoricalFrame {
 		return nil
 	}
 
-	var earliestTick int64
-	if h.count >= int64(HistoryBufferSize) {
-		earliestTick = h.latestTick - int64(HistoryBufferSize) + 1
-	} else {
-		earliestTick = h.latestTick - h.count + 1
-	}
-	if earliestTick < 1 {
-		earliestTick = 1
-	}
-
 	targetTick := tick
-	if targetTick < earliestTick {
-		targetTick = earliestTick
+	if targetTick < h.earliestTick {
+		targetTick = h.earliestTick
 	}
 	if targetTick > h.latestTick {
 		targetTick = h.latestTick
@@ -225,6 +220,34 @@ func (h *HistoryBuffer) ClosestStateAt(tick int64) *HistoricalFrame {
 	}
 
 	slot := &h.slots[slotIndex]
+	if !slot.Valid {
+		// If exact clamped slot is somehow invalid, find nearest valid recorded slot
+		for offset := int64(0); offset < int64(HistoryBufferSize); offset++ {
+			tryTick := targetTick - offset
+			if tryTick >= h.earliestTick {
+				idx := int(tryTick % int64(HistoryBufferSize))
+				if idx < 0 {
+					idx += HistoryBufferSize
+				}
+				if h.slots[idx].Valid && h.slots[idx].Tick == tryTick {
+					slot = &h.slots[idx]
+					break
+				}
+			}
+			tryTickPlus := targetTick + offset
+			if tryTickPlus <= h.latestTick {
+				idx := int(tryTickPlus % int64(HistoryBufferSize))
+				if idx < 0 {
+					idx += HistoryBufferSize
+				}
+				if h.slots[idx].Valid && h.slots[idx].Tick == tryTickPlus {
+					slot = &h.slots[idx]
+					break
+				}
+			}
+		}
+	}
+
 	if !slot.Valid {
 		return nil
 	}
@@ -251,13 +274,5 @@ func (h *HistoryBuffer) Bounds() (earliest int64, latest int64) {
 		return 0, 0
 	}
 
-	if h.count >= int64(HistoryBufferSize) {
-		earliest = h.latestTick - int64(HistoryBufferSize) + 1
-	} else {
-		earliest = h.latestTick - h.count + 1
-	}
-	if earliest < 1 {
-		earliest = 1
-	}
-	return earliest, h.latestTick
+	return h.earliestTick, h.latestTick
 }
