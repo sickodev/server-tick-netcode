@@ -141,11 +141,11 @@ Parse incoming `{ type: "snapshot", ... }` messages in `NetworkClient`. Extract 
 Implement `PredictionEngine.ts`. Instead of waiting for server snapshots to move the local player, simulate movement locally the instant a key is pressed using the same physics constants as the server. Store each sent `UserCmd` in an unACKed buffer.
 
 **Definition of Done**
-- [ ] Local player moves immediately on keypress — no visible delay even with artificial latency
-- [ ] `PredictionEngine` holds a buffer of sent `UserCmd`s not yet ACKed by the server
-- [ ] Movement constants (`PLAYER_SPEED`, arena bounds) match the Go service exactly
-- [ ] Unit test: given the same sequence of `UserCmd`s, `PredictionEngine` produces the same positions as the Go physics package
-- [ ] Old snap-to-server-position logic from STORY-F08 is removed for local player
+- [x] Local player moves immediately on keypress — no visible delay even with artificial latency
+- [x] `PredictionEngine` holds a buffer of sent `UserCmd`s not yet ACKed by the server
+- [x] Movement constants (`PLAYER_SPEED`, arena bounds) match the Go service exactly
+- [x] Unit test: given the same sequence of `UserCmd`s, `PredictionEngine` produces the same positions as the Go physics package
+- [x] Old snap-to-server-position logic from STORY-F08 is removed for local player
 
 ---
 
@@ -156,11 +156,11 @@ Implement `PredictionEngine.ts`. Instead of waiting for server snapshots to move
 When a snapshot arrives with `ackSeq`, compare the server's authoritative position for that command against what `PredictionEngine` predicted. If they differ, snap to the server position and re-simulate all buffered commands after `ackSeq` forward to the present.
 
 **Definition of Done**
-- [ ] On snapshot receive: commands ≤ `ackSeq` are discarded from the buffer
-- [ ] If server position ≠ predicted position for `ackSeq`: snap + re-simulate remaining buffer
-- [ ] If positions match: buffer trimmed, no visual change
-- [ ] Prediction error (distance between predicted and server position) is stored for the debug overlay (STORY-F13)
-- [ ] Player movement feels smooth — no visible snapping under normal conditions
+- [x] On snapshot receive: commands ≤ `ackSeq` are discarded from the buffer
+- [x] If server position ≠ predicted position for `ackSeq`: snap + re-simulate remaining buffer
+- [x] If positions match: buffer trimmed, no visual change
+- [x] Prediction error (distance between predicted and server position) is stored for the debug overlay (STORY-F13)
+- [x] Player movement feels smooth — no visible snapping under normal conditions
 
 ---
 
@@ -171,11 +171,11 @@ When a snapshot arrives with `ackSeq`, compare the server's authoritative positi
 Implement `InterpolationBuffer.ts`. Instead of snapping remote players to the latest snapshot position, store the last N snapshots with timestamps and render remote entities at `now - interpDelay` by linearly interpolating between the two bracketing snapshots.
 
 **Definition of Done**
-- [ ] `InterpolationBuffer` stores the last 8 snapshots per entity
-- [ ] Remote players are rendered at `renderTime = now - 2 × tickInterval` (≈ 31ms behind)
-- [ ] Position is linearly interpolated between the two snapshots bracketing `renderTime`
-- [ ] Remote players move smoothly with no teleporting under normal packet delivery
-- [ ] If only one snapshot is available (e.g. first connect), fall back to that position directly
+- [x] `InterpolationBuffer` stores the last 8 snapshots per entity
+- [x] Remote players are rendered at `renderTime = now - 2 × tickInterval` (≈ 31ms behind)
+- [x] Position is linearly interpolated between the two snapshots bracketing `renderTime`
+- [x] Remote players move smoothly with no teleporting under normal packet delivery
+- [x] If only one snapshot is available (e.g. first connect), fall back to that position directly
 
 ---
 
@@ -190,10 +190,10 @@ Implement `InterpolationBuffer.ts`. Instead of snapping remote players to the la
 Map left mouse click (or `Space`) to set `fire: true` in the `UserCmd` for that frame only. Play a simple canvas effect (a brief flash or expanding ring at the player position) as immediate visual feedback.
 
 **Definition of Done**
-- [ ] Clicking or pressing `Space` sets `fire: true` on the next `UserCmd`
-- [ ] `fire` is `false` on all other frames
-- [ ] A brief local visual effect (flash / ring) plays instantly on fire — no waiting for server
-- [ ] Bullets fired appear from the snapshot once the server confirms them
+- [x] Clicking or pressing `Space` sets `fire: true` on the next `UserCmd`
+- [x] `fire` is `false` on all other frames
+- [x] A brief local visual effect (flash / ring) plays instantly on fire — no waiting for server
+- [x] Bullets fired appear from the snapshot once the server confirms them
 
 ---
 
