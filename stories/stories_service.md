@@ -17,10 +17,10 @@ Stories are ordered strictly by dependency. Each one should be completable and c
 The simplest possible Go program: start a `time.NewTicker` at 64Hz (every `time.Second / 64`) and print the tick count to stdout once per second. Confirms the ticker works and the module builds.
 
 **Definition of Done**
-- [ ] `go run main.go` starts without errors
-- [ ] Console prints `tick: 64`, `tick: 128`, … once per second (±2 ticks tolerance)
-- [ ] Program exits cleanly on `Ctrl+C` (signal handling via `os.Signal`)
-- [ ] Ticker goroutine does not leak on shutdown
+- [x] `go run main.go` starts without errors
+- [x] Console prints `tick: 64`, `tick: 128`, … once per second (±2 ticks tolerance)
+- [x] Program exits cleanly on `Ctrl+C` (signal handling via `os.Signal`)
+- [x] Ticker goroutine does not leak on shutdown
 
 ---
 
@@ -31,11 +31,11 @@ The simplest possible Go program: start a `time.NewTicker` at 64Hz (every `time.
 In `world/state.go`, define `PlayerState`, `BulletState`, and `WorldState`. No logic yet — just the data types the rest of the service will build on.
 
 **Definition of Done**
-- [ ] `PlayerState` has: `ID string`, `X, Y float64`, `Angle float64`, `Health int`, `Speed float64`
-- [ ] `BulletState` has: `ID string`, `OwnerID string`, `X, Y float64`, `VX, VY float64`, `BornTick int64`
-- [ ] `WorldState` has: `Tick int64`, `Players map[string]*PlayerState`, `Bullets []*BulletState`
-- [ ] `go build ./...` passes with no errors
-- [ ] All fields are exported (capital first letter)
+- [x] `PlayerState` has: `ID string`, `X, Y float64`, `Angle float64`, `Health int`, `Speed float64`
+- [x] `BulletState` has: `ID string`, `OwnerID string`, `X, Y float64`, `VX, VY float64`, `BornTick int64`
+- [x] `WorldState` has: `Tick int64`, `Players map[string]*PlayerState`, `Bullets []*BulletState`
+- [x] `go build ./...` passes with no errors
+- [x] All fields are exported (capital first letter)
 
 ---
 
@@ -46,11 +46,11 @@ In `world/state.go`, define `PlayerState`, `BulletState`, and `WorldState`. No l
 Extract the ticker from `main.go` into `tick/loop.go`. Define a `Loop` struct with a `Start(ctx context.Context)` method that runs the 64Hz tick and calls a pluggable `onTick func(tick int64)` callback. `main.go` wires it up.
 
 **Definition of Done**
-- [ ] `tick.Loop` is instantiated in `main.go` with an `onTick` callback
-- [ ] `onTick` receives the current tick number on each call
-- [ ] Loop shuts down cleanly when the `context` is cancelled
-- [ ] `go test ./tick/...` passes (test that 64 ticks fire within 1 second ± 5ms)
-- [ ] No goroutine leak on shutdown (verified with `goleak` or manual check)
+- [x] `tick.Loop` is instantiated in `main.go` with an `onTick` callback
+- [x] `onTick` receives the current tick number on each call
+- [x] Loop shuts down cleanly when the `context` is cancelled
+- [x] `go test ./tick/...` passes (test that 64 ticks fire within 1 second ± 5ms)
+- [x] No goroutine leak on shutdown (verified with `goleak` or manual check)
 
 ---
 
@@ -65,11 +65,11 @@ Extract the ticker from `main.go` into `tick/loop.go`. Define a `Loop` struct wi
 In `physics/movement.go`, implement `ApplyMovement(p *PlayerState, dx, dy, aimAngle float64, dt float64)`. This is the **single source of truth** for movement — the frontend `PredictionEngine` must replicate this exactly.
 
 **Definition of Done**
-- [ ] `p.X` and `p.Y` are updated by `dx * Speed * dt` and `dy * Speed * dt`
-- [ ] `p.Angle` is set to `aimAngle`
-- [ ] Player cannot leave the arena (clamp to `[0, ARENA_W]` × `[0, ARENA_H]`)
-- [ ] `ARENA_W`, `ARENA_H`, `DEFAULT_SPEED` are named constants in a `physics/constants.go` file
-- [ ] `go test ./physics/...` passes: same input always produces same output (determinism test)
+- [x] `p.X` and `p.Y` are updated by `dx * Speed * dt` and `dy * Speed * dt`
+- [x] `p.Angle` is set to `aimAngle`
+- [x] Player cannot leave the arena (clamp to `[0, ARENA_W]` × `[0, ARENA_H]`)
+- [x] `ARENA_W`, `ARENA_H`, `DEFAULT_SPEED` are named constants in a `physics/constants.go` file
+- [x] `go test ./physics/...` passes: same input always produces same output (determinism test)
 
 ---
 
@@ -80,11 +80,11 @@ In `physics/movement.go`, implement `ApplyMovement(p *PlayerState, dx, dy, aimAn
 In `world/state.go`, add `AddPlayer(id string) *PlayerState` which inserts a new player at a random spawn point within the arena with full health. Add `RemovePlayer(id string)`.
 
 **Definition of Done**
-- [ ] `AddPlayer` inserts a `PlayerState` into `WorldState.Players` with `Health = 100`
-- [ ] Spawn position is random within the inner 80% of the arena (not on the edge)
-- [ ] `RemovePlayer` deletes the player and all their bullets
-- [ ] Both are safe to call concurrently (protected by a `sync.RWMutex` on `WorldState`)
-- [ ] Unit tests cover: add, remove, duplicate add (should overwrite)
+- [x] `AddPlayer` inserts a `PlayerState` into `WorldState.Players` with `Health = 100`
+- [x] Spawn position is random within the inner 80% of the arena (not on the edge)
+- [x] `RemovePlayer` deletes the player and all their bullets
+- [x] Both are safe to call concurrently (protected by a `sync.RWMutex` on `WorldState`)
+- [x] Unit tests cover: add, remove, duplicate add (should overwrite)
 
 ---
 
@@ -95,11 +95,11 @@ In `world/state.go`, add `AddPlayer(id string) *PlayerState` which inserts a new
 Each tick, drain the per-player `usercmd` channel (non-blocking) and call `physics.ApplyMovement` for each received command. Use a `map[string]chan UserCmd` to hold the per-player command queues.
 
 **Definition of Done**
-- [ ] Each player has a buffered `chan UserCmd` (capacity 128)
-- [ ] Tick loop drains all pending commands for all players using a non-blocking `select`
-- [ ] Only the **latest** command per player per tick is applied (excess are discarded if channel overflows)
-- [ ] Players with no pending commands do not move
-- [ ] `go test ./tick/...` includes a test: enqueue a move command, run one tick, assert new position
+- [x] Each player has a buffered `chan UserCmd` (capacity 128)
+- [x] Tick loop drains all pending commands for all players using a non-blocking `select`
+- [x] Only the **latest** command per player per tick is applied (excess are discarded if channel overflows)
+- [x] Players with no pending commands do not move
+- [x] `go test ./tick/...` includes a test: enqueue a move command, run one tick, assert new position
 
 ---
 
