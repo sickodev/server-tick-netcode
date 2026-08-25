@@ -244,6 +244,76 @@ ser#S11–S14 — lag compensation: history buffer, bullets, hit detection
 - Delete the feature branch after merge
 - `main` must always be in a buildable state after every merge
 
+### 8.4 How Agents Open PRs Directly
+
+When an agent completes a story and pushes the feature branch, it **must open the PR directly** rather than asking the user to create it manually.
+
+#### Method A: Direct GitHub REST API (PowerShell — Recommended)
+This retrieves authenticated Git credentials from the local credential manager without needing manually exported tokens:
+
+```powershell
+# 1. Retrieve GitHub token from Git credential manager
+$inputStr = "protocol=https`nhost=github.com`n`n"
+$creds = $inputStr | git credential fill
+$token = ""
+foreach ($line in $creds) {
+    if ($line -match "^password=(.*)$") { $token = $matches[1] }
+}
+
+# 2. Extract repository owner/repo and current branch
+$remoteUrl = git remote get-url origin
+if ($remoteUrl -match "github\.com[:/](.+?)(?:\.git)?$") { $repoPath = $matches[1] }
+$currentBranch = (git branch --show-current).Trim()
+
+# 3. Create the PR via GitHub REST API
+$headers = @{
+    "Authorization" = "Bearer $token"
+    "Accept"        = "application/vnd.github+json"
+    "User-Agent"    = "PowerShell-Antigravity"
+}
+
+$payload = @{
+    title = "<prefix>#<story-id> — <short description>"
+    head  = $currentBranch
+    base  = "main"
+    body  = @"
+## 📋 Summary of Changes
+
+### What was done?
+<plain English description>
+
+### Why was it done?
+<rationale or problem solved>
+
+### How does it work?
+<high level architectural explanation>
+
+## 🏷️ Story & Service Reference
+- **Story IDs**: <story-id>
+- **Service Prefix**: <prefix>
+
+## ✅ Definition of Done & Team Checklist (AGENTS.md)
+- [x] Commits follow standard format (<prefix>#<id> - <action>)
+- [x] All tests passing
+- [x] Documentation comments added
+
+## 🧪 Test & Verification Evidence
+<test output or log snippets>
+"@
+} | ConvertTo-Json
+
+$response = Invoke-RestMethod -Uri "https://api.github.com/repos/$repoPath/pulls" -Method Post -Headers $headers -Body $payload -ContentType "application/json"
+Write-Output "PR Created: $($response.html_url)"
+```
+
+#### Method B: GitHub CLI (`gh` if available)
+```bash
+gh pr create \
+  --title "<prefix>#<story-id> — <short description>" \
+  --body "..." \
+  --base main
+```
+
 ---
 
 ## 9. General Conduct Rules
