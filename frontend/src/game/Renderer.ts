@@ -1,4 +1,4 @@
-import { ARENA_W, ARENA_H, PLAYER_RADIUS } from './constants';
+import { ARENA_H, ARENA_W, PLAYER_RADIUS } from './constants';
 import { BulletState, EntityState } from './types';
 
 /**
@@ -30,21 +30,46 @@ export const RENDER_CONFIG = {
   /** Active projectile bullet fill color (vibrant yellow) */
   BULLET_COLOR: '#ffd32a',
   /** Active projectile bullet rendering radius in pixels */
-  BULLET_RADIUS: 5,
+  BULLET_RADIUS: 4,
   /** Text color for player identification labels */
   PLAYER_LABEL_COLOR: '#ffffff',
   /** Typography style for player identification labels */
   PLAYER_LABEL_FONT: '11px monospace',
+  /** Muzzle flash expanding ring maximum expansion radius in pixels */
+  MUZZLE_FLASH_MAX_RADIUS: 24,
+  /** Muzzle flash animation lifespan in milliseconds */
+  MUZZLE_FLASH_DURATION_MS: 120,
 } as const;
 
 /**
+ * Represents a transient local visual particle or ring animation effect.
+ */
+export interface VisualEffect {
+  /** Discriminator of the visual effect */
+  type: 'muzzle_flash';
+  /** Horizontal origin coordinate in pixels */
+  x: number;
+  /** Vertical origin coordinate in pixels */
+  y: number;
+  /** Firing aim direction angle in radians */
+  angle: number;
+  /** Epoch timestamp in milliseconds when the effect was initiated */
+  startTime: number;
+  /** Duration in milliseconds before effect expires */
+  duration: number;
+}
+
+/**
  * 2D Canvas rendering engine responsible for painting the game arena, local player,
- * remote players, projectiles, and visual indicators.
+ * interpolated remote players, extrapolated projectiles, and particle visual effects.
  *
  * Owns all direct HTML5 Canvas 2D context drawing operations.
  */
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
+
+  /** Active transient visual effects (muzzle flashes, expanding rings) */
+  private visualEffects: VisualEffect[] = [];
 
   /**
    * Initializes the Renderer with the target 2D rendering context.
@@ -59,7 +84,6 @@ export class Renderer {
    * Clears the entire canvas viewport and paints the solid dark arena background.
    */
   public clear(): void {
-    // Fill the full canvas area with dark background tone
     this.ctx.fillStyle = RENDER_CONFIG.BACKGROUND_COLOR;
     this.ctx.fillRect(0, 0, ARENA_W, ARENA_H);
   }
@@ -162,7 +186,6 @@ export class Renderer {
    */
   public drawRemotePlayers(entities: EntityState[]): void {
     for (const entity of entities) {
-      // Display truncated identifier or label above remote player
       const label = entity.id ? `P-${entity.id.slice(0, 4)}` : 'Remote';
       this.drawPlayer(
         entity.x,
@@ -177,46 +200,142 @@ export class Renderer {
   }
 
   /**
-   * Renders all active projectiles currently in flight within the arena.
+   * Renders all active projectiles in flight, extrapolating their positions forward
+   * based on projectile velocity (vx, vy) and elapsed time since snapshot reception.
    *
-   * @param bullets - Array of BulletState objects to draw.
+   * Story F12 / Latency Compensation:
+   * Extrapolating bullets between snapshot arrivals eliminates projectile stutter
+   * and renders smooth projectile trajectories across screen repaints.
+   *
+   * @param bullets              - Array of BulletState objects from authoritative server snapshot.
+   * @param extrapolationSeconds - Elapsed delta time in seconds since the snapshot was received.
    */
-  public drawBullets(bullets: BulletState[]): void {
+  public drawBullets(bullets: BulletState[], extrapolationSeconds: number = 0): void {
     const { ctx } = this;
 
     ctx.save();
     ctx.fillStyle = RENDER_CONFIG.BULLET_COLOR;
 
     for (const bullet of bullets) {
+      // Extrapolate position along velocity vector: pos = pos0 + velocity * dt
+      const bulletX = bullet.x + (bullet.vx || 0) * extrapolationSeconds;
+      const bulletY = bullet.y + (bullet.vy || 0) * extrapolationSeconds;
+
+      // Draw bullet head circle
       ctx.beginPath();
-      ctx.arc(bullet.x, bullet.y, RENDER_CONFIG.BULLET_RADIUS, 0, Math.PI * 2, false);
+      ctx.arc(bulletX, bulletY, RENDER_CONFIG.BULLET_RADIUS, 0, Math.PI * 2, false);
       ctx.fill();
+
+      // Draw subtle motion streak if bullet possesses significant velocity
+      if (bullet.vx !== 0 || bullet.vy !== 0) {
+        const speed = Math.hypot(bullet.vx, bullet.vy);
+        if (speed > 0) {
+          const streakLength = 8;
+          const nx = bullet.vx / speed;
+          const ny = bullet.vy / speed;
+
+          ctx.beginPath();
+          ctx.moveTo(bulletX, bulletY);
+          ctx.lineTo(bulletX - nx * streakLength, bulletY - ny * streakLength);
+          ctx.strokeStyle = RENDER_CONFIG.BULLET_COLOR;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+      }
     }
 
     ctx.restore();
   }
 
   /**
-   * Top-level frame rendering method.
-   * Sequentially clears viewport, draws arena boundaries/grid, remote players, bullets,
-   * and renders the local player entity on top.
+   * Triggers an immediate local muzzle flash and expanding ring effect at the player's weapon muzzle.
    *
-   * @param playerX        - Current local player horizontal coordinate in pixels.
-   * @param playerY        - Current local player vertical coordinate in pixels.
-   * @param aimAngle       - Optional current local player aim angle in radians.
-   * @param remoteEntities - Optional array of active remote player entities.
-   * @param bullets        - Optional array of active projectiles.
+   * @param playerX  - Horizontal coordinate of the shooting player.
+   * @param playerY  - Vertical coordinate of the shooting player.
+   * @param aimAngle - Weapon aim direction in radians.
+   */
+  public addMuzzleFlash(playerX: number, playerY: number, aimAngle: number): void {
+    // Offset muzzle flash origin to player circle circumference
+    const muzzleX = playerX + Math.cos(aimAngle) * PLAYER_RADIUS;
+    const muzzleY = playerY + Math.sin(aimAngle) * PLAYER_RADIUS;
+
+    this.visualEffects.push({
+      type: 'muzzle_flash',
+      x: muzzleX,
+      y: muzzleY,
+      angle: aimAngle,
+      startTime: performance.now(),
+      duration: RENDER_CONFIG.MUZZLE_FLASH_DURATION_MS,
+    });
+  }
+
+  /**
+   * Paints and advances active transient visual effects (muzzle flashes, expanding shock rings).
+   *
+   * @param currentTime - High-resolution timestamp in milliseconds.
+   */
+  public drawEffects(currentTime: number = performance.now()): void {
+    const { ctx } = this;
+    const activeEffects: VisualEffect[] = [];
+
+    for (const effect of this.visualEffects) {
+      const elapsed = currentTime - effect.startTime;
+      if (elapsed >= effect.duration) {
+        continue; // Effect expired
+      }
+
+      activeEffects.push(effect);
+      const progress = elapsed / effect.duration; // 0.0 to 1.0
+      const opacity = 1.0 - progress;
+
+      ctx.save();
+
+      if (effect.type === 'muzzle_flash') {
+        // Expanding flash ring
+        const currentRadius = progress * RENDER_CONFIG.MUZZLE_FLASH_MAX_RADIUS;
+        ctx.beginPath();
+        ctx.arc(effect.x, effect.y, Math.max(1, currentRadius), 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(255, 230, 100, ${opacity.toFixed(3)})`;
+        ctx.lineWidth = 2 * (1 - progress);
+        ctx.stroke();
+
+        // Inner bright spark
+        ctx.beginPath();
+        ctx.arc(effect.x, effect.y, Math.max(1, (1 - progress) * 6), 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255, 255, 255, ${opacity.toFixed(3)})`;
+        ctx.fill();
+      }
+
+      ctx.restore();
+    }
+
+    this.visualEffects = activeEffects;
+  }
+
+  /**
+   * Top-level frame rendering method.
+   * Sequentially clears viewport, draws arena boundaries/grid, active visual effects,
+   * remote players, extrapolated bullets, and renders the local player entity on top.
+   *
+   * @param playerX              - Current local player horizontal coordinate in pixels.
+   * @param playerY              - Current local player vertical coordinate in pixels.
+   * @param aimAngle             - Optional current local player aim angle in radians.
+   * @param remoteEntities       - Optional array of active remote player entities.
+   * @param bullets              - Optional array of active projectiles.
+   * @param extrapolationSeconds - Elapsed delta time in seconds since snapshot for bullet extrapolation.
    */
   public render(
     playerX: number = ARENA_W / 2,
     playerY: number = ARENA_H / 2,
     aimAngle?: number,
     remoteEntities: EntityState[] = [],
-    bullets: BulletState[] = []
+    bullets: BulletState[] = [],
+    extrapolationSeconds: number = 0
   ): void {
     this.clear();
     this.drawArena();
-    this.drawBullets(bullets);
+    this.drawEffects();
+    this.drawBullets(bullets, extrapolationSeconds);
     this.drawRemotePlayers(remoteEntities);
     this.drawPlayer(
       playerX,
