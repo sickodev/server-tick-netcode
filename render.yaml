@@ -10,7 +10,7 @@ services:
   # A private service bypasses the public proxy entirely, allowing raw TCP / HTTP/2 gRPC
   # over Render's internal private network between containers in the same region.
   - type: pserv
-    name: tick-gameserver-kalyan
+    name: tick-gameserver
     env: docker
     dockerfilePath: service/Dockerfile
     dockerContext: service
@@ -28,7 +28,7 @@ services:
   # Java Gateway (WebSocket Relay)
   # ──────────────────────────────────────────
   - type: web
-    name: tick-gateway-kalyan
+    name: tick-gateway
     env: docker
     dockerfilePath: gateway/Dockerfile
     dockerContext: gateway
@@ -42,7 +42,7 @@ services:
       # The gateway connects over the private network without TLS — gRPC works natively over HTTP/2.
       - key: GO_SERVICE_HOST
         fromService:
-          name: tick-gameserver-kalyan
+          name: tick-gameserver
           type: pserv
           property: host
       # gRPC port matching EXPOSE 9090 in the game service Dockerfile
