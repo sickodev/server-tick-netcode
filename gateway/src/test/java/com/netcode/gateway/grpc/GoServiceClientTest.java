@@ -15,7 +15,8 @@ class GoServiceClientTest {
     @Test
     @DisplayName("GoServiceClient should initialize channel and stub and shutdown cleanly")
     void testLifecycle() {
-        GoServiceClient client = new GoServiceClient("localhost", 9090);
+        // useTls=false: correct for local/internal plaintext gRPC connections
+        GoServiceClient client = new GoServiceClient("localhost", 9090, false);
         assertEquals("localhost", client.getHost());
         assertEquals(9090, client.getPort());
 
