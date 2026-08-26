@@ -5,7 +5,11 @@ services:
   # ──────────────────────────────────────────
   # Go Game Service (Authoritative Simulation)
   # ──────────────────────────────────────────
-  - type: web
+  # type: pserv (private service) is required for gRPC.
+  # Render's public "web" proxy speaks HTTP/1.1 only, which breaks gRPC (requires HTTP/2).
+  # A private service bypasses the public proxy entirely, allowing raw TCP / HTTP/2 gRPC
+  # over Render's internal private network between containers in the same region.
+  - type: pserv
     name: tick-gameserver-kalyan
     env: docker
     dockerfilePath: service/Dockerfile
@@ -33,12 +37,18 @@ services:
       # Explicitly set the port to 8080 to match EXPOSE 8080 in Dockerfile
       - key: PORT
         value: "8080"
-      # Automatically resolve the Go service host
+      # Resolve the Go game service internal private-network hostname.
+      # Using type: pserv ensures Render returns the internal host (not the public onrender.com URL).
+      # The gateway connects over the private network without TLS — gRPC works natively over HTTP/2.
       - key: GO_SERVICE_HOST
         fromService:
           name: tick-gameserver-kalyan
-          type: web
+          type: pserv
           property: host
-      # Automatically resolve the Go service port
+      # gRPC port matching EXPOSE 9090 in the game service Dockerfile
       - key: GO_SERVICE_PORT
         value: "9090"
+      # Disable TLS for internal private-network gRPC — the private network is already secure
+      # and Render does not terminate/wrap private traffic with TLS.
+      - key: GRPC_USE_TLS
+        value: "false"

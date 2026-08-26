@@ -25,3 +25,12 @@ go-service:
   # gRPC port of the backend Go authoritative game service.
   # Configurable via GO_SERVICE_PORT; defaults to 9090.
   port: ${GO_SERVICE_PORT:9090}
+
+# ==============================================================================
+# gRPC Transport Configuration
+# ==============================================================================
+grpc:
+  # Whether to use TLS for the gRPC channel to the game service.
+  # Set to false (default) for Render internal private-network connections (pserv).
+  # Set to true only when the game service is exposed publicly over HTTPS.
+  use-tls: ${GRPC_USE_TLS:false}

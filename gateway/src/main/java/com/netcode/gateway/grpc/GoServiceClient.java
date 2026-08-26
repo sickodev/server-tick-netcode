@@ -30,21 +30,33 @@ public class GoServiceClient {
     private final String host;
     private final int port;
 
+    /**
+     * Whether to use TLS transport security for the gRPC channel.
+     * Set GRPC_USE_TLS=true only when connecting over a public network.
+     * For Render internal private-network connections (pserv → web) this must be false
+     * because the private network accepts plaintext HTTP/2 and does not require TLS.
+     */
+    private final boolean useTls;
+
     private ManagedChannel channel;
     private GameServiceGrpc.GameServiceStub stub;
 
     /**
-     * Constructs the gRPC service client with host and port injected from application configuration.
+     * Constructs the gRPC service client with host, port, and TLS flag injected from
+     * application configuration.
      *
-     * @param host Target host of the Go game service (defaults to localhost).
-     * @param port Target gRPC port of the Go game service (defaults to 9090).
+     * @param host   Target host of the Go game service (defaults to localhost).
+     * @param port   Target gRPC port of the Go game service (defaults to 9090).
+     * @param useTls Whether to wrap the channel in TLS transport security (defaults to false).
      */
     public GoServiceClient(
             @Value("${go-service.host:localhost}") String host,
-            @Value("${go-service.port:9090}") int port
+            @Value("${go-service.port:9090}") int port,
+            @Value("${grpc.use-tls:false}") boolean useTls
     ) {
         this.host = host;
         this.port = port;
+        this.useTls = useTls;
     }
 
     /**
@@ -53,14 +65,17 @@ public class GoServiceClient {
      */
     @PostConstruct
     public void init() {
-        log.info("[grpc] initializing gRPC connection to {}:{}", host, port);
+        log.info("[grpc] initializing gRPC connection to {}:{} (tls={})", host, port, useTls);
         io.grpc.ManagedChannelBuilder<?> channelBuilder = ManagedChannelBuilder.forAddress(host, port);
-        
-        if (host.contains("onrender.com")) {
-            log.info("[grpc] enabling TLS transport security for public host: {}", host);
+
+        if (useTls) {
+            // Use TLS transport security — required only for connections to public external hosts.
+            log.info("[grpc] enabling TLS transport security for host: {}", host);
             channelBuilder.useTransportSecurity();
         } else {
-            log.info("[grpc] using plaintext connection for local/internal host: {}", host);
+            // Use plaintext HTTP/2 — correct for Render internal private-network connections
+            // and local development. The private network is isolated and does not need TLS.
+            log.info("[grpc] using plaintext connection for host: {}", host);
             channelBuilder.usePlaintext();
         }
         
